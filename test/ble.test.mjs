@@ -80,3 +80,20 @@ test('garbage notifications are ignored', async () => {
   t._receive(Uint8Array.from({ length: 700 }, () => 0xaa));
   assert.ok(t.rxBuf.length <= 600);
 });
+
+test('stray non-frame notifications (e.g. "2B 00 00") do not break reassembly', () => {
+  const t = new BLEWheelTransport({ name: 'x', addEventListener() {}, removeEventListener() {} }, key);
+  const spp = Uint8Array.of(1, 0xc9, 3, 5, 1, 0x62, 1);
+  const pkt = encryptPacket(spp, key);
+  const got = [];
+  const waiter = { tid: 0xc9, resolve: (v) => got.push(v) };
+  t.waiters.add(waiter);
+  t._receive(Uint8Array.of(0x2b, 0x00, 0x00));                  // junk before
+  for (let i = 0; i < pkt.length; i += 20) t._receive(pkt.slice(i, i + 20));
+  assert.equal(got.length, 1);
+  assert.deepEqual(Array.from(got[0]), Array.from(spp));
+  t._receive(Uint8Array.of(0x2b, 0x00, 0x00));                  // junk after
+  const w2 = { tid: 0xc9, resolve: (v) => got.push(v) }; t.waiters.add(w2);
+  t._receive(pkt);                                              // next reply still decodes
+  assert.equal(got.length, 2);
+});

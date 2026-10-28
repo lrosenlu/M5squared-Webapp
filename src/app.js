@@ -95,6 +95,17 @@ async function connectReal(side, showAll = false) {
   w.busy = ''; render();
 }
 
+/** Exchange the Left and Right assignments (wheels, sessions and saved keys). Never while driving. */
+function swapSides() {
+  if (app.sup && app.sup.state !== State.DISCONNECTED) return;
+  [wheels.left, wheels.right] = [wheels.right, wheels.left];
+  for (const sd of SIDES) if (wheels[sd].session) wheels[sd].session.side = sd;
+  const [kl, kr] = [store.get('key.left'), store.get('key.right')];
+  for (const [sd, k] of [['left', kr], ['right', kl]]) { if (k) store.set('key.' + sd, k); else store.del('key.' + sd); }
+  [app.keyDraft.left, app.keyDraft.right] = [app.keyDraft.right, app.keyDraft.left];
+  render();
+}
+
 async function disconnect(side) {
   if (app.sup && app.sup.state !== State.DISCONNECTED) { await app.sup.shutdown(); app.sup = null; }
   const w = wheels[side];
@@ -175,6 +186,9 @@ function viewWheels() {
   });
   return [
     ...cards,
+    SIDES.some(connected) && h('div', { class: 'card' },
+      h('p', { class: 'mut' }, 'Each wheel reports which side it is mounted on. If the Status tab says a wheel is on the opposite side, swap the assignment here (nothing is reconnected or changed on the wheels).'),
+      h('button', { class: 'btn ghost', onclick: swapSides }, 'Swap left / right')),
     h('div', { class: 'card' },
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.remember, onchange: (e) => {
         app.remember = e.target.checked; store.set('remember', app.remember);

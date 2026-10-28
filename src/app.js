@@ -83,7 +83,9 @@ async function connectReal(side, showAll = false) {
     if (app.remember) store.set('key.' + side, raw);
     w.busy = 'Reading status...'; render();
     w.status = await w.session.readStatus();
-    if (!w.status.hasData) w.error = 'Connected, but the wheel did not answer. Check that the key belongs to THIS wheel.';
+    if (!w.status.hasData) w.error = transport.rawBytes > 0
+      ? 'The wheel is sending data but it cannot be decrypted: this is the wrong key. Each wheel has its own key (left and right differ), and it is the 22-character code from that wheel\'s QR label.'
+      : 'Connected, but the wheel sent nothing back. Check About \u2192 log for details, then disconnect, wait 10 s and try again.';
   } catch (e) {
     w.error = 'Connection failed: ' + (e.message || e);
     try { await transport.disconnect(); } catch { /* ignore */ }

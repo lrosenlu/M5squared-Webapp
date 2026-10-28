@@ -1,0 +1,96 @@
+{
+ "key": "000102030405060708090a0b0c0d0e0f",
+ "crc": [
+  {
+   "data": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627",
+   "crc": 16592
+  },
+  {
+   "data": "ef01efef02",
+   "crc": 12044
+  },
+  {
+   "data": "416c6265725f4d32355f656d6f74696f",
+   "crc": 14432
+  }
+ ],
+ "stuffing": [
+  {
+   "raw": "ef0102",
+   "stuffed": "ef0102"
+  },
+  {
+   "raw": "efef01ef02ef",
+   "stuffed": "efefef01efef02efef"
+  },
+  {
+   "raw": "ef00efefef",
+   "stuffed": "ef00efefefefefef"
+  }
+ ],
+ "packets": {
+  "systemModeConnect": "01800501011001",
+  "readSOC": "018005010811",
+  "readAssistLevel": "018005010141",
+  "readDriveMode": "018005010121",
+  "readDriveProfile": "018005010161",
+  "readDriveProfileParams1": "01800501015101",
+  "readCruiseValues": "0180050101d1",
+  "readDuoDriveParams": "0180050101f1",
+  "readSWVersion": "018005010a21",
+  "writeAssistLevel1": "01800501014001",
+  "writeDriveModeAutoHold": "01800501012001",
+  "writeDriveModeRemoteCruise": "01800501012006",
+  "writeDriveProfile2": "01800501016002",
+  "writeRemoteSpeedNeg80": "018005010130ffb0",
+  "writeRemoteSpeed150": "0180050101300096",
+  "writeDriveProfileParams": "01800501015001500683012c1e32142a1c"
+ },
+ "encryption": [
+  {
+   "iv": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+   "spp": "018005010811",
+   "packet": "ef00245e18d1fef61d087ec0a33ed734a7918f05e5b783956787dceab6d6734f44cc88c7c8"
+  },
+  {
+   "iv": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+   "spp": "018005010130ffb0",
+   "packet": "ef00245e18d1fef61d087ec0a33ed734a7918f06d380cf1a4ac4181d62d07ace1122680f83"
+  },
+  {
+   "iv": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+   "spp": "01800501015001500683012c1e32142a1c",
+   "packet": "ef00345e18d1fef61d087ec0a33ed734a7918ff8f66aa90c8ed186d555a7989f696c0b32e3914c5ccb4859568d23f01612c988120e"
+  },
+  {
+   "iv": "efefefefefefefefefefefefefefefef",
+   "spp": "018005010811",
+   "packet": "ef0024f666131dc464bb5cec242abedbdfa06cafa3757123f59c23c48e76c4bb2ecbe25378"
+  },
+  {
+   "iv": "efefefefefefefefefefefefefefefef",
+   "spp": "018005010130ffb0",
+   "packet": "ef0024f666131dc464bb5cec242abedbdfa06c43b37ffbd65cae6de8ed918ef50ad2639735"
+  },
+  {
+   "iv": "efefefefefefefefefefefefefefefef",
+   "spp": "01800501015001500683012c1e32142a1c",
+   "packet": "ef0034f666131dc464bb5cec242abedbdfa06c4a94266b3261eeb5e5a4e2d3a569eec16ee7c52500f0825962c47688de9ccca6f4e0"
+  }
+ ],
+ "wrongKeyPacket": "ef00245e18d1fef61d087ec0a33ed734a7918f05e5b783956787dceab6d6734f44cc88c7c8",
+ "qr": [
+  {
+   "qr": "ABCDEFGHJKLMNPQRSTUVWX",
+   "key": "0108310518720928b30d38f411493515"
+  },
+  {
+   "qr": "AHQXemt18/GPWdksz7?FNV",
+   "key": "07395723ab1e3f18d51b8a9c37f85313"
+  },
+  {
+   "qr": "/@963zwtqnjgdaXURNKGDA",
+   "key": "fce76cf0b6a9e485e6d85523cc2460c0"
+  }
+ ]
+}

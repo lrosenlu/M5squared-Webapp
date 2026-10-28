@@ -50,6 +50,7 @@ export class BLEWheelTransport {
     this.connected = false;
     this.profile = null;
     this.rxBuf = new Uint8Array(0);
+    this.rawBytes = 0; // total notification bytes seen, for diagnosing key problems
     this.waiters = new Set();
     this.queue = Promise.resolve();
     this.onDisconnect = null;
@@ -76,7 +77,11 @@ export class BLEWheelTransport {
     this.writeChar = await found.svc.getCharacteristic(found.p.write);
     this.notifyChar = found.p.notify === found.p.write ? this.writeChar : await found.svc.getCharacteristic(found.p.notify);
     this.notifyChar.addEventListener('characteristicvaluechanged', this._onValue);
-    await this.notifyChar.startNotifications();
+    // Some modules reject the first subscribe right after connecting; settle, then retry once.
+    await sleep(400);
+    try { await this.notifyChar.startNotifications(); }
+    catch { await sleep(800); await this.notifyChar.startNotifications(); }
+    await sleep(200);
     this.connected = true;
   }
 
@@ -92,6 +97,8 @@ export class BLEWheelTransport {
 
   // ---- receive: reassemble, try to decrypt, discard junk
   _receive(chunk) {
+    this.rawBytes += chunk.length;
+    this.trace?.(`[RAW ${this.name}] ${chunk.length}B ${toHexSpaced(chunk)}`);
     this.rxBuf = concat(this.rxBuf, chunk);
     if (this.rxBuf.length > MAX_FRAME_LENGTH * 2) this.rxBuf = this.rxBuf.slice(-MAX_FRAME_LENGTH);
     const spp = decryptPacket(this.rxBuf, this.key);
@@ -119,6 +126,7 @@ export class BLEWheelTransport {
         const part = packet.slice(i, i + CHUNK);
         if (this.writeChar.writeValueWithoutResponse) await this.writeChar.writeValueWithoutResponse(part);
         else await this.writeChar.writeValue(part);
+        if (i + CHUNK < packet.length) await sleep(12);
       }
     });
   }

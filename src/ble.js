@@ -124,8 +124,21 @@ export class BLEWheelTransport {
     this.trace?.(`[RAW ${this.name}] ${chunk.length}B ${toHexSpaced(chunk)}`);
     this.rxBuf = concat(this.rxBuf, chunk);
     if (this.rxBuf.length > MAX_FRAME_LENGTH * 2) this.rxBuf = this.rxBuf.slice(-MAX_FRAME_LENGTH);
-    const spp = decryptPacket(this.rxBuf, this.key);
-    if (!spp) return; // incomplete or corrupt; keep buffering (bounded above)
+    // Wheels sometimes emit stray notifications (e.g. "2B 00 00") that are not part of a frame.
+    // A frame always starts with 0xEF, so drop anything before it, and if a complete-looking
+    // buffer fails to decrypt, skip one byte and resync on the next 0xEF.
+    let spp = null;
+    for (;;) {
+      let start = 0;
+      while (start < this.rxBuf.length && this.rxBuf[start] !== 0xef) start++;
+      if (start > 0) this.rxBuf = this.rxBuf.slice(start);
+      if (this.rxBuf.length === 0) return;
+      spp = decryptPacket(this.rxBuf, this.key);
+      if (spp) break;
+      const declared = this.rxBuf.length >= 3 ? ((this.rxBuf[1] << 8) | this.rxBuf[2]) + 1 : Infinity;
+      if (this.rxBuf.length > declared + 24 || this.rxBuf.length > MAX_FRAME_LENGTH) { this.rxBuf = this.rxBuf.slice(1); continue; }
+      return; // incomplete: wait for more bytes
+    }
     this.rxBuf = new Uint8Array(0);
     this.trace?.(`[RX ${this.name}] ${toHexSpaced(spp)}`);
     for (const w of [...this.waiters]) {

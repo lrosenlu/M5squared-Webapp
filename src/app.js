@@ -73,6 +73,8 @@ async function connectReal(side, showAll = false) {
   w.error = ''; w.busy = 'Choose the wheel in the Bluetooth picker...'; render();
   let device;
   try { device = await pickWheel(showAll); } catch (e) { w.busy = ''; w.error = e.name === 'NotFoundError' ? 'No wheel selected.' : e.message; return render(); }
+  const other = SIDES.find((sd) => sd !== side && wheels[sd].transport?.device?.id && wheels[sd].transport.device.id === device.id);
+  if (other) { w.busy = ''; w.error = `That is the same wheel (${device.name || 'unnamed'}) already connected as ${other}. Pick the OTHER wheel in the list.`; return render(); }
   w.busy = 'Connecting...'; render();
   const transport = new BLEWheelTransport(device, key, { trace });
   transport.onDisconnect = () => { w.error = 'Disconnected.'; render(); };
@@ -222,6 +224,8 @@ function statusCard(side) {
   const speeds = selectableKmh(app.allowHigh);
   return h('div', { class: 'card' },
     h('h2', {}, (side === 'left' ? 'Left' : 'Right') + ' wheel', w.demo && ' (demo)'),
+    w.transport?.name && h('p', { class: 'mut' }, 'Bluetooth device: ' + w.transport.name),
+    s && !s.hasData && h('p', { class: 'bad' }, 'No reply from this wheel. Either the key is not this wheel\'s key, or this slot is connected to the same wheel as the other slot. Disconnect it on the Wheels tab, then reconnect and choose the other device name.'),
     s && h('div', { class: 'kv' },
       ...kv('Battery', s.battery != null ? s.battery + ' %' : null), ...kv('Firmware', s.firmware?.text),
       ...kv('Assist level', ASSIST_NAMES[s.assistLevel]), ...kv('Profile', PROFILES[s.profile]),

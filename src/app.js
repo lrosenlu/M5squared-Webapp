@@ -65,14 +65,14 @@ function confirmDialog(title, body, okLabel = 'Continue') {
 }
 
 // ------------------------------------------------------------------ connection
-async function connectReal(side) {
+async function connectReal(side, showAll = false) {
   const w = wheels[side];
   const raw = app.keyDraft[side].trim() || store.get('key.' + side, '');
   let key;
   try { key = parseKeyInput(raw); } catch (e) { w.error = e.message; return render(); }
   w.error = ''; w.busy = 'Choose the wheel in the Bluetooth picker...'; render();
   let device;
-  try { device = await pickWheel(); } catch (e) { w.busy = ''; w.error = e.name === 'NotFoundError' ? 'No wheel selected.' : e.message; return render(); }
+  try { device = await pickWheel(showAll); } catch (e) { w.busy = ''; w.error = e.name === 'NotFoundError' ? 'No wheel selected.' : e.message; return render(); }
   w.busy = 'Connecting...'; render();
   const transport = new BLEWheelTransport(device, key, { trace });
   transport.onDisconnect = () => { w.error = 'Disconnected.'; render(); };
@@ -165,7 +165,9 @@ function viewWheels() {
            h('input', { id: 'key-' + side, type: 'password', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
              placeholder: store.get('key.' + side) ? 'Saved key will be used' : 'Paste or type the key',
              value: app.keyDraft[side], oninput: (e) => { app.keyDraft[side] = e.target.value; } }),
-           h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side) }, 'Connect'))],
+           h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side) }, 'Connect'),
+             h('button', { class: 'btn ghost', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side, true) }, 'Show all devices')),
+           h('p', { class: 'mut' }, 'Wheel not listed? Switch it on, close the official app, and unpair it from the phone\'s Bluetooth settings, then try "Show all devices".')],
       w.busy && h('p', { class: 'mut' }, w.busy),
       w.error && h('p', { class: 'bad' }, w.error));
   });

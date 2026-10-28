@@ -32,8 +32,10 @@ export function bluetoothHelp() {
 }
 
 /** Must be called from a user gesture (tap). */
-export async function pickWheel() {
+export async function pickWheel(showAll = false) {
   if (!bluetoothSupported()) throw new Error(bluetoothHelp());
+  // showAll: list every nearby device, for wheels whose advertised name/services don't match the filters.
+  if (showAll) return navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: PROFILES.map((p) => p.service) });
   return navigator.bluetooth.requestDevice({
     filters: [...PROFILES.map((p) => ({ services: [p.service] })), ...NAME_PREFIXES.map((namePrefix) => ({ namePrefix }))],
     optionalServices: PROFILES.map((p) => p.service),

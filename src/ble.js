@@ -76,11 +76,33 @@ export class BLEWheelTransport {
     this.profile = found.p;
     this.writeChar = await found.svc.getCharacteristic(found.p.write);
     this.notifyChar = found.p.notify === found.p.write ? this.writeChar : await found.svc.getCharacteristic(found.p.notify);
+
+    // Diagnostics: log every characteristic and its properties, and also listen on any other
+    // notifying characteristic, in case this wheel replies somewhere unexpected.
+    this.extraNotify = [];
+    if (typeof found.svc.getCharacteristics === 'function') {
+      try {
+        const all = await found.svc.getCharacteristics();
+        for (const c of all) {
+          const pr = c.properties ? Object.entries(c.properties).filter(([, v]) => v).map(([k]) => k).join(',') : '?';
+          this.trace?.(`[GATT] ${c.uuid} props=${pr}`);
+          const isCfg = c.uuid === this.notifyChar.uuid || c.uuid === this.writeChar.uuid;
+          if (!isCfg && c.properties && (c.properties.notify || c.properties.indicate)) this.extraNotify.push(c);
+        }
+      } catch (e) { this.trace?.(`[GATT] could not list characteristics: ${e.message || e}`); }
+    }
+    const wp = this.writeChar.properties;
+    this.trace?.(`[GATT] using ${this.profile.name}; write props=${wp ? Object.entries(wp).filter(([, v]) => v).map(([k]) => k).join(',') : '?'}`);
+
     this.notifyChar.addEventListener('characteristicvaluechanged', this._onValue);
     // Some modules reject the first subscribe right after connecting; settle, then retry once.
     await sleep(400);
     try { await this.notifyChar.startNotifications(); }
-    catch { await sleep(800); await this.notifyChar.startNotifications(); }
+    catch (e) { this.trace?.(`[GATT] subscribe failed (${e.message || e}); retrying`); await sleep(800); await this.notifyChar.startNotifications(); }
+    for (const c of this.extraNotify) {
+      try { c.addEventListener('characteristicvaluechanged', this._onValue); await c.startNotifications(); this.trace?.(`[GATT] also listening on ${c.uuid}`); }
+      catch (e) { this.trace?.(`[GATT] extra subscribe ${c.uuid} failed: ${e.message || e}`); }
+    }
     await sleep(200);
     this.connected = true;
   }
@@ -89,6 +111,7 @@ export class BLEWheelTransport {
     this.connected = false;
     this._failWaiters();
     try { this.notifyChar?.removeEventListener('characteristicvaluechanged', this._onValue); } catch { /* ignore */ }
+    for (const c of this.extraNotify ?? []) { try { c.removeEventListener('characteristicvaluechanged', this._onValue); } catch { /* ignore */ } }
     try { this.device.removeEventListener('gattserverdisconnected', this._onGatt); } catch { /* ignore */ }
     try { this.device.gatt?.disconnect(); } catch { /* ignore */ }
   }
@@ -124,7 +147,9 @@ export class BLEWheelTransport {
     return this._enqueue(async () => {
       for (let i = 0; i < packet.length; i += CHUNK) {
         const part = packet.slice(i, i + CHUNK);
-        if (this.writeChar.writeValueWithoutResponse) await this.writeChar.writeValueWithoutResponse(part);
+        const wp = this.writeChar.properties;
+        if (wp && wp.write && this.writeChar.writeValueWithResponse) await this.writeChar.writeValueWithResponse(part);
+        else if (this.writeChar.writeValueWithoutResponse) await this.writeChar.writeValueWithoutResponse(part);
         else await this.writeChar.writeValue(part);
         if (i + CHUNK < packet.length) await sleep(12);
       }

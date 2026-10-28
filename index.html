@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1720">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="M5Squared">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<title>M5Squared</title>
+</head>
+<body>
+<header>
+  <h1>M5Squared</h1>
+  <div id="chips"></div>
+</header>
+<div id="banner" hidden></div>
+<main id="view"></main>
+<nav id="tabs">
+  <button data-tab="wheels">Wheels</button>
+  <button data-tab="status">Status</button>
+  <button data-tab="drive">Drive</button>
+  <button data-tab="about">About</button>
+</nav>
+<dialog id="dlg"><form method="dialog"><h2 id="dlgTitle"></h2><p id="dlgBody"></p>
+  <div class="row"><button value="cancel" class="ghost">Cancel</button><button value="ok" class="danger" id="dlgOk">OK</button></div></form></dialog>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

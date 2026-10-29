@@ -6,7 +6,7 @@ import {
   PacketBuilder, POS, PARAM, SVC, DEV, SYSTEM_MODE_CONNECT, DRIVE_BIT, ASSIST, SELECTABLE_PROFILES,
   parseHeader, isAck, isNack, parseSOC, parseAssistLevel, parseDriveMode, parseDriveProfile,
   parseProfileParams, parseCruiseValues, parseDuoDriveParams, parseSWVersion,
-  nearestRaw, STANDARD_TIER_MAX_RAW, MAX_SPEED_MMPS, parseBmsState,
+  nearestRaw, STANDARD_TIER_MAX_RAW, MAX_SPEED_MMPS, parseBmsState, validateProfileParams,
 } from './packets.js';
 import { toHexSpaced } from './protocol.js';
 
@@ -98,9 +98,35 @@ export class WheelSession {
     const b = this.builder;
     const t = { at: Date.now() };
     t.cruise = await this._read(() => b.readCruiseValues(), PARAM.CRUISE_VALUES, parseCruiseValues);
-    if (bms) t.bms = await this._read(() => b.readBmsState(), PARAM.STATUS_BMS_STATE, parseBmsState);
+    // Upstream's tools only ever read SOC (and the cruise-values soc byte). The BMS charging flag exists in its protocol
+    // table but no script uses it, so treat it as experimental: ask once, and stop asking if the wheel does not answer.
+    if (bms && this.bmsSupported !== false) {
+      t.bms = await this._read(() => b.readBmsState(), PARAM.STATUS_BMS_STATE, parseBmsState);
+      this.bmsSupported = t.bms ? true : false;
+    }
     t.battery = t.cruise ? t.cruise.batteryPercent : null;
     return t;
+  }
+
+  /**
+   * Write a full profile-parameter set for one assist level and verify it by reading it back.
+   * Returns { ok, before, after, error }. Values are range-checked against upstream's documented limits first.
+   */
+  async writeProfileParamsVerified(level, p, { allowAboveStandardTier = false } = {}) {
+    if (level !== ASSIST.NORMAL && level !== ASSIST.OUTDOOR) return { ok: false, error: 'Only levels 0 and 1 have parameters' };
+    const err = validateProfileParams(p);
+    if (err) return { ok: false, error: err };
+    const params = { ...p };
+    if (!allowAboveStandardTier) params.maxSpeedRaw = Math.min(params.maxSpeedRaw, STANDARD_TIER_MAX_RAW);
+    const before = await this.readProfileParams(level);
+    if (!before) return { ok: false, error: 'Could not read the current parameters' };
+    await sleep(this.commandDelayMs);
+    if (!(await this._write(this.builder.writeProfileParams(level, params)))) return { ok: false, before, error: 'The wheel rejected the write' };
+    await sleep(this.commandDelayMs);
+    const after = await this.readProfileParams(level);
+    const keys = ['maxTorque', 'maxSpeedRaw', 'pFactor', 'speedBias', 'speedFactor', 'rotationThreshold', 'slopeInc', 'slopeDec'];
+    const same = after && keys.every((k) => after[k] === params[k]);
+    return { ok: !!same, before, after, error: same ? '' : 'The wheel did not keep the values I wrote (read-back differs)' };
   }
 
   async readProfileParams(level) {
@@ -211,6 +237,18 @@ export class WheelSession {
    * every keepAliveMs), then write the speed. A stop writes speed 0 first, then drops CRUISE but stays in REMOTE.
    */
   async drive(mmps, isStop = false) {
+    // Like the firmware's motor queue (depth 1, newest wins): never queue behind a slow write, just remember the latest.
+    if (this._driveBusy) { this._pendingDrive = [mmps, isStop]; this.skippedDrives = (this.skippedDrives || 0) + 1; return this._lastDriveOk !== false; }
+    this._driveBusy = true;
+    try {
+      let args = [mmps, isStop], ok = true;
+      do { this._pendingDrive = null; ok = await this._driveNow(...args); args = this._pendingDrive; } while (args);
+      this._lastDriveOk = ok; this.driveWrites = (this.driveWrites || 0) + 1;
+      return ok;
+    } finally { this._driveBusy = false; }
+  }
+
+  async _driveNow(mmps, isStop = false) {
     const speed = Math.max(-REMOTE_SPEED_HARD_LIMIT, Math.min(REMOTE_SPEED_HARD_LIMIT, Math.trunc(mmps)));
     if (isStop || speed === 0) {
       const sent = await this._send(this.builder.writeRemoteSpeed(0));

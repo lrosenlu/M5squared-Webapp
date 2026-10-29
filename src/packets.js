@@ -138,7 +138,10 @@ export function parseCruiseValues(p) {
   return {
     driveMode: parseDriveMode([p[0]]),
     pushRim: (p[1] << 24) >> 24,
-    speedKmh: ((p[2] << 8) | p[3]) * 0.001,
+    // Upstream documents this as unsigned, but real wheels send a signed int16 (reverse = 0xFFxx), so decode it signed.
+    // The sign is the wheel's own: the left wheel's forward is negative (it is mirrored like the remote speed).
+    speedRaw: (((p[2] << 8) | p[3]) << 16) >> 16,
+    speedKmh: ((((p[2] << 8) | p[3]) << 16) >> 16) * 0.001,
     batteryPercent: p[4],
     distanceKm: (distanceRaw * 0.01) / 1000,
     pushCount: (p[9] << 8) | p[10],
@@ -169,4 +172,17 @@ export function parseSWVersion(p) {
   }
   const z = (n, w) => String(n).padStart(w, '0');
   return { text: `${prefix}${z(major, 2)}.${z(minor, 3)}.${z(patch, 3)}`, major, minor, patch };
+}
+
+/** Upstream's documented limits (m25_ecs.build_write_drive_profile_params, SLOPE_VALUES, SPEED_BIAS_VALUES). Returns an error string or ''. */
+export function validateProfileParams(p) {
+  const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!int(p.maxTorque, 10, 100)) return 'Torque must be 10 to 100 %';
+  if (!SPEED_RAW.includes(p.maxSpeedRaw)) return 'Max speed must be one of the wheel\'s speed steps';
+  if (!int(p.pFactor, 1, 999)) return 'P-factor must be 1 to 999';
+  if (![10, 20, 30, 40, 50].includes(p.speedBias)) return 'Speed bias must be 10, 20, 30, 40 or 50';
+  if (!int(p.speedFactor, 1, 100)) return 'Speed factor must be 1 to 100';
+  if (!int(p.rotationThreshold, 1, 150)) return 'Rotation threshold must be 1 to 150';
+  for (const k of ['slopeInc', 'slopeDec']) if (![70, 56, 42, 28, 20].includes(p[k])) return 'Slopes must be 20, 28, 42, 56 or 70';
+  return '';
 }

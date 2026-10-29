@@ -115,7 +115,13 @@ export class WheelSession {
     const params = await this.readProfileParams(level);
     if (!params) return false;
     await sleep(this.commandDelayMs);
-    return this._write(this.builder.writeProfileParams(level, { ...params, maxSpeedRaw: raw }));
+    const ok = await this._write(this.builder.writeProfileParams(level, { ...params, maxSpeedRaw: raw }));
+    if (!ok) return false;
+    // Read back the same level. Upstream is inconsistent about whether profile levels are 0/1 or 1/2
+    // (its GUI passes 1 and 2), so confirm the wheel really changed what we think we changed.
+    await sleep(this.commandDelayMs);
+    const after = await this._read(() => this.builder.readProfileParams(level), PARAM.STATUS_PROFILE_PARAMS, parseProfileParams);
+    return after === null || after.maxSpeedRaw === raw;
   }
 
   /** Try cruise+remote first (many variants need it), then remote only, like upstream. */

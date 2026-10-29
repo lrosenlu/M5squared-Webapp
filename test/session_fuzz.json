@@ -1,0 +1,480 @@
+[
+ {
+  "name": "status_ok",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 1
+ },
+ {
+  "name": "status_ok",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "echo_read_param",
+  "kind": "read",
+  "specs": [
+   {
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 1
+ },
+ {
+  "name": "echo_read_param",
+  "kind": "write",
+  "specs": [
+   {
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "ack_with_payload",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 255,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 1
+ },
+ {
+  "name": "ack_with_payload",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 255,
+    "payload": "4d"
+   }
+  ],
+  "result": true,
+  "calls": 1
+ },
+ {
+  "name": "ack_empty",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 255
+   }
+  ],
+  "result": null,
+  "calls": 3
+ },
+ {
+  "name": "ack_empty",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 255
+   }
+  ],
+  "result": true,
+  "calls": 1
+ },
+ {
+  "name": "nack_82",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 130
+   }
+  ],
+  "result": null,
+  "calls": 1
+ },
+ {
+  "name": "nack_82",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 130
+   }
+  ],
+  "result": false,
+  "calls": 1
+ },
+ {
+  "name": "nack_88",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 136
+   }
+  ],
+  "result": null,
+  "calls": 1
+ },
+ {
+  "name": "nack_88",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 136
+   }
+  ],
+  "result": false,
+  "calls": 1
+ },
+ {
+  "name": "param_0x89_not_nack",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 137,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 1
+ },
+ {
+  "name": "param_0x89_not_nack",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 137,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "wrong_tid",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 18,
+    "payload": "4d",
+    "tidAdd": 1
+   }
+  ],
+  "result": null,
+  "calls": 3
+ },
+ {
+  "name": "wrong_tid",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 18,
+    "payload": "4d",
+    "tidAdd": 1
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "same_service_other_param",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 85,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 1
+ },
+ {
+  "name": "same_service_other_param",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 85,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "other_service_other_param",
+  "kind": "read",
+  "specs": [
+   {
+    "service": 9,
+    "param": 85,
+    "payload": "4d"
+   }
+  ],
+  "result": null,
+  "calls": 3
+ },
+ {
+  "name": "other_service_other_param",
+  "kind": "write",
+  "specs": [
+   {
+    "service": 9,
+    "param": 85,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "no_reply",
+  "kind": "read",
+  "specs": [
+   {
+    "none": true
+   }
+  ],
+  "result": null,
+  "calls": 3
+ },
+ {
+  "name": "no_reply",
+  "kind": "write",
+  "specs": [
+   {
+    "none": true
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "short_raw",
+  "kind": "read",
+  "specs": [
+   {
+    "raw": "010203"
+   }
+  ],
+  "result": null,
+  "calls": 3
+ },
+ {
+  "name": "short_raw",
+  "kind": "write",
+  "specs": [
+   {
+    "raw": "010203"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "empty_payload_status",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 18
+   }
+  ],
+  "result": null,
+  "calls": 3
+ },
+ {
+  "name": "empty_payload_status",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 18
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "none_then_ok",
+  "kind": "read",
+  "specs": [
+   {
+    "none": true
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 2
+ },
+ {
+  "name": "none_then_ok",
+  "kind": "write",
+  "specs": [
+   {
+    "none": true
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "wrongtid_then_ok",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 18,
+    "payload": "4d",
+    "tidAdd": 5
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 2
+ },
+ {
+  "name": "wrongtid_then_ok",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 18,
+    "payload": "4d",
+    "tidAdd": 5
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "empty_then_ok",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 18
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 2
+ },
+ {
+  "name": "empty_then_ok",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 18
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ },
+ {
+  "name": "nack_then_ok",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 130
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": null,
+  "calls": 1
+ },
+ {
+  "name": "nack_then_ok",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 130
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 1
+ },
+ {
+  "name": "ack_then_ok_write",
+  "kind": "read",
+  "specs": [
+   {
+    "param": 255
+   }
+  ],
+  "result": null,
+  "calls": 3
+ },
+ {
+  "name": "ack_then_ok_write",
+  "kind": "write",
+  "specs": [
+   {
+    "param": 255
+   }
+  ],
+  "result": true,
+  "calls": 1
+ },
+ {
+  "name": "short_then_ok",
+  "kind": "read",
+  "specs": [
+   {
+    "raw": "0102"
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": 77,
+  "calls": 2
+ },
+ {
+  "name": "short_then_ok",
+  "kind": "write",
+  "specs": [
+   {
+    "raw": "0102"
+   },
+   {
+    "param": 18,
+    "payload": "4d"
+   }
+  ],
+  "result": false,
+  "calls": 3
+ }
+]

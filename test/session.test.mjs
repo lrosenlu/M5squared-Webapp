@@ -52,3 +52,14 @@ test('helpers', () => {
   assert.deepEqual(selectableKmh(true).at(-1), 8.5);
   assert.equal(parseSWVersion(Uint8Array.of(1, 2)), null);
 });
+
+test('writeMaxSpeed reads back, and reports a write that did not take effect', async () => {
+  const w = new MockWheel('Left'); await w.connect();
+  const s = new WheelSession('left', w, { commandDelayMs: 0, replyTimeoutMs: 200 });
+  assert.equal(await s.writeMaxSpeed(0, 4.0), true);
+  assert.equal((w.params[0][1] << 8) | w.params[0][2], 1111); // 4.0 km/h
+  // A wheel that ACKs the write but ignores it must be reported as a failure.
+  const orig = w._handle.bind(w);
+  w._handle = (req) => (req[5] === 0x50 ? w._reply(req, 0xff, [0]) : orig(req));
+  assert.equal(await s.writeMaxSpeed(0, 3.0), false);
+});

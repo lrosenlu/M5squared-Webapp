@@ -6,7 +6,7 @@ import {
   PacketBuilder, POS, PARAM, SVC, DEV, SYSTEM_MODE_CONNECT, DRIVE_BIT, ASSIST, SELECTABLE_PROFILES,
   parseHeader, isAck, isNack, parseSOC, parseAssistLevel, parseDriveMode, parseDriveProfile,
   parseProfileParams, parseCruiseValues, parseDuoDriveParams, parseSWVersion,
-  nearestRaw, STANDARD_TIER_MAX_RAW, MAX_SPEED_MMPS,
+  nearestRaw, STANDARD_TIER_MAX_RAW, MAX_SPEED_MMPS, parseBmsState,
 } from './packets.js';
 import { toHexSpaced } from './protocol.js';
 
@@ -91,6 +91,16 @@ export class WheelSession {
     s.updated = Date.now();
     s.hasData = [s.battery, s.assistLevel, s.driveMode, s.firmware].some((v) => v !== null);
     return s;
+  }
+
+  /** Light poll for the live gauges: cruise values (speed, push rim, soc, distance, errors) + charging flag. */
+  async readTelemetry({ bms = true } = {}) {
+    const b = this.builder;
+    const t = { at: Date.now() };
+    t.cruise = await this._read(() => b.readCruiseValues(), PARAM.CRUISE_VALUES, parseCruiseValues);
+    if (bms) t.bms = await this._read(() => b.readBmsState(), PARAM.STATUS_BMS_STATE, parseBmsState);
+    t.battery = t.cruise ? t.cruise.batteryPercent : null;
+    return t;
   }
 
   async readProfileParams(level) {
@@ -246,6 +256,7 @@ export class MockWheel {
     this.connected = false;
     this.speeds = [];
     this.trace = null;
+    this.charging = false; this.speedMmh = 0; this.pushRim = 0; this.pushCount = 42; this.error = 0;
   }
 
   get isConnected() { return this.connected; }
@@ -284,8 +295,9 @@ export class MockWheel {
       case `${SVC.APP}:${PARAM.READ_PROFILE_PARAMS}`:
         res = this._reply(req, PARAM.STATUS_PROFILE_PARAMS, this.params[payload[0] ?? 0] ?? this.params[0]); break;
       case `${SVC.APP}:${PARAM.READ_CRUISE}`:
-        res = this._reply(req, PARAM.CRUISE_VALUES, [this.driveMode, 0, 0, 0, this.battery,
-          (d >>> 24) & 255, (d >>> 16) & 255, (d >>> 8) & 255, d & 255, 0, 42, 0, 0]); break;
+        res = this._reply(req, PARAM.CRUISE_VALUES, [this.driveMode, this.pushRim & 255, (this.speedMmh >> 8) & 255, this.speedMmh & 255, this.battery,
+          (d >>> 24) & 255, (d >>> 16) & 255, (d >>> 8) & 255, d & 255, (this.pushCount >> 8) & 255, this.pushCount & 255, this.error, 0]); break;
+      case `${SVC.BATT}:${PARAM.READ_BMS_STATE}`: res = this._reply(req, PARAM.STATUS_BMS_STATE, [0, this.charging ? 1 : 0]); break;
       case `${SVC.APP}:${PARAM.READ_DUO}`: res = this._reply(req, PARAM.STATUS_DUO, [/left/i.test(this.name) ? 2 : 1, 3, 2]); break;
       case `${SVC.VERSION}:${PARAM.READ_SW_VERSION}`: res = this._reply(req, PARAM.STATUS_SW_VERSION, this.firmware); break;
       case `${SVC.APP}:${PARAM.WRITE_ASSIST_LEVEL}`: this.assistLevel = payload[0]; res = ack(); break;

@@ -30,6 +30,7 @@ export const PARAM = {
   READ_CRUISE: 0xd1, CRUISE_VALUES: 0xd2,
   READ_DUO: 0xf1, STATUS_DUO: 0xf2,
   READ_SOC: 0x11, STATUS_SOC: 0x12,
+  READ_BMS_STATE: 0x71, STATUS_BMS_STATE: 0x72,
   READ_SW_VERSION: 0x21, STATUS_SW_VERSION: 0x22,
 };
 
@@ -75,6 +76,7 @@ export class PacketBuilder {
   readProfileParams(level) { return this.packet(SVC.APP, PARAM.READ_PROFILE_PARAMS, [level]); }
   readCruiseValues() { return this.packet(SVC.APP, PARAM.READ_CRUISE); }
   readDuoDriveParams() { return this.packet(SVC.APP, PARAM.READ_DUO); }
+  readBmsState() { return this.packet(SVC.BATT, PARAM.READ_BMS_STATE); }
   readSWVersion() { return this.packet(SVC.VERSION, PARAM.READ_SW_VERSION); }
 
   writeSystemMode(mode) { return this.packet(SVC.APP, PARAM.WRITE_SYSTEM_MODE, [mode]); }
@@ -142,6 +144,12 @@ export function parseCruiseValues(p) {
     pushCount: (p[9] << 8) | p[10],
     wheelError: p[11],
   };
+}
+
+/** STATUS_BMS_STATE: [flags, is_charging]. */
+export function parseBmsState(p) {
+  if (p.length < 2) return null;
+  return { flags: p[0], charging: p[1] !== 0 };
 }
 
 export function parseDuoDriveParams(p) {

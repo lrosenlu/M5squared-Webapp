@@ -96,3 +96,17 @@ UART) · `drive.js` mapper & supervisor · `app.js` UI · `sw.js` offline cache.
 ## License
 
 AGPL-3.0-or-later, as upstream. See `LICENSE` and `NOTICE.md`.
+
+
+## Firmware parity (6static/m25-remote)
+
+The drive path follows the hardware-proven m25-remote firmware: speeds in mm/s (100 % = 10 km/h, capped at 2361 mm/s),
+a 4-attempt arming handshake verified by reading back the REMOTE bit, a drive-mode refresh every 80 ms, a stop that
+writes speed 0 then leaves cruise, the firmware's mapper semantics (checked against its natively compiled mapper), a 60 s
+armed-idle disarm, a low-battery speed cap below 20 % and a drive lockout below 15 %.
+
+Also included: live telemetry (speed, push-rim sensor, push count, wheel error, distance, charging state), a speedometer,
+"keep both wheels in sync" for settings, single-wheel drive mode, hill hold, auto-reconnect and a read-only packet probe.
+
+Not available: battery **voltage**. The documented wheel protocol has no voltage read; use the probe on your own wheels to
+look for one. Untested on real hardware.

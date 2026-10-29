@@ -22,7 +22,8 @@ test('readStatus reads everything', async () => {
 test('writes: assist, profile, auto-hold', async () => {
   const { w, s } = await mk();
   assert.ok(await s.writeAssistLevel(1)); assert.equal(w.assistLevel, 1);
-  assert.equal(await s.writeAssistLevel(2), false);
+  assert.ok(await s.writeAssistLevel(2)); assert.equal(w.assistLevel, 2);
+  assert.equal(await s.writeAssistLevel(3), false);
   assert.ok(await s.writeDriveProfile(3)); assert.equal(w.profile, 3);
   assert.equal(await s.writeDriveProfile(9), false);
   assert.ok(await s.writeAutoHold(true)); assert.equal(w.driveMode, 1);

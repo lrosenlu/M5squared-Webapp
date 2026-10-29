@@ -1,3 +1,4 @@
+import { percentToMmps } from "./packets.js";
 // Port of core/types.py, core/mapper.py and core/supervisor.py. SAFETY-CRITICAL.
 //
 // Deliberate differences from the Python original (same as the iOS port):
@@ -21,19 +22,28 @@ export const isStop = (f) => f.left === 0 && f.right === 0;
 export function defaultMapperConfig() {
   return {
     deadzone: 0.1, curve: 2.0,
-    maxSpeed: { stop: 0, slow: 30, normal: 60, fast: 100 },
-    rampRate: 50, maxRampStep: 0.25, firstStep: 0.1, invertSteering: false,
+    maxSpeed: { stop: 0, slow: 30, normal: 60, fast: 100 }, // percent of the 10 km/h hardware scale
+    maxSpeedLowBattery: 30,   // cap applied in every mode while the low-battery limit is active
+    rampRate: 50,             // percent/s; <= 0 disables ramping (as in the firmware)
+    reverseRatio: 1.0,        // reverse cap as a fraction of forward max (1.0 = none)
+    turnReduction: 0.0,       // inner-wheel softening (0 = none)
+    maxRampStep: 0.25, firstStep: 0.1, invertSteering: false,
   };
 }
+
+/** Same rounding as C roundf(): half away from zero (Math.round rounds -2.5 to -2). */
+const roundHalfAway = (v) => Math.sign(v) * Math.round(Math.abs(v));
 
 export class Mapper {
   constructor(config = defaultMapperConfig(), now = () => Date.now() / 1000) {
     this.config = config;
     this.now = now;
+    this.lowBattery = false;
     this.reset();
   }
 
   reset() { this.last = null; this.lastTime = 0; }
+  setLowBatteryLimit(active) { this.lowBattery = !!active; }
 
   map(state) {
     const t = this.now();
@@ -41,22 +51,33 @@ export class Mapper {
       this.last = stopFrame(); this.lastTime = t;
       return stopFrame();
     }
+    const c = this.config;
     const vx = this.curve(this.deadzone(clamp(state.vx, -1, 1)));
     let vy = this.curve(this.deadzone(clamp(state.vy, -1, 1)));
-    if (this.config.invertSteering) vy = -vy;
+    if (c.invertSteering) vy = -vy;
 
     let [left, right] = this.differential(vx, vy);
-    const max = this.config.maxSpeed[state.mode] ?? 0;
+    let max = c.maxSpeed[state.mode] ?? 0;
+    if (this.lowBattery && max > c.maxSpeedLowBattery) max = c.maxSpeedLowBattery;
     left = clamp(left * max, -max, max);
     right = clamp(right * max, -max, max);
 
-    const prev = this.last ?? stopFrame();
-    const raw = this.lastTime > 0 ? t - this.lastTime : this.config.firstStep;
-    const dt = Math.max(0, Math.min(raw, this.config.maxRampStep));
-    left = this.ramp(left, prev.left, dt);
-    right = this.ramp(right, prev.right, dt);
+    if (c.reverseRatio < 1) {
+      const reverseMax = max * c.reverseRatio;
+      if (left < -reverseMax) left = -reverseMax;
+      if (right < -reverseMax) right = -reverseMax;
+    }
 
-    const frame = { left: clamp(Math.round(left), -100, 100), right: clamp(Math.round(right), -100, 100) };
+    if (c.rampRate > 0) {
+      const prev = this.last ?? stopFrame();
+      // Whole milliseconds, like the firmware's millis(): no float noise on exact x.5 ramp steps.
+      const rawMs = this.lastTime > 0 ? Math.round((t - this.lastTime) * 1000) : Math.round(c.firstStep * 1000);
+      const dtMs = Math.max(0, Math.min(rawMs, Math.round(c.maxRampStep * 1000)));
+      left = this.ramp(left, prev.left, dtMs);
+      right = this.ramp(right, prev.right, dtMs);
+    }
+
+    const frame = { left: clamp(roundHalfAway(left), -100, 100), right: clamp(roundHalfAway(right), -100, 100) };
     this.last = frame; this.lastTime = t;
     return frame;
   }
@@ -69,15 +90,19 @@ export class Mapper {
 
   curve(v) { return v === 0 ? 0 : Math.sign(v) * Math.abs(v) ** this.config.curve; }
 
+  /** Positive vy = right turn: left = vx + vy, right = vx - vy. The INNER wheel's turn term is softened. */
   differential(vx, vy) {
-    let left = vx + vy, right = vx - vy;
+    const soft = 1 - this.config.turnReduction;
+    const leftTurn = vy < 0 ? vy * soft : vy;
+    const rightTurn = vy >= 0 ? vy * soft : vy;
+    let left = vx + leftTurn, right = vx - rightTurn;
     const m = Math.max(Math.abs(left), Math.abs(right));
     if (m > 1) { left /= m; right /= m; }
     return [left, right];
   }
 
-  ramp(target, current, dt) {
-    const maxChange = this.config.rampRate * dt;
+  ramp(target, current, dtMs) {
+    const maxChange = (this.config.rampRate * dtMs) / 1000;
     const delta = target - current;
     if (Math.abs(delta) <= maxChange) return target;
     return current + (delta > 0 ? maxChange : -maxChange);
@@ -86,35 +111,44 @@ export class Mapper {
 
 /** Two WheelSessions acting as one chair. The left wheel is mounted mirrored: its command is negated. */
 export class WheelPair {
-  constructor(left, right) { this.left = left; this.right = right; }
+  /** `mode`: 'dual' | 'left' | 'right'. In single-wheel modes the other session may be null. */
+  constructor(left, right, mode = 'dual') { this.left = left; this.right = right; this.mode = mode; }
 
-  get isConnected() { return !!(this.left.transport.isConnected && this.right.transport.isConnected); }
+  get active() {
+    return [this.mode !== 'right' ? this.left : null, this.mode !== 'left' ? this.right : null].filter(Boolean);
+  }
+
+  get isConnected() { return this.active.length > 0 && this.active.every((w) => w.transport.isConnected); }
 
   async enterRemoteMode() {
-    const l = await this.left.enterRemoteMode();
-    const r = await this.right.enterRemoteMode();
-    if (l && r) return true;
+    const results = [];
+    for (const w of this.active) results.push(await w.enterRemoteMode());
+    if (results.every(Boolean)) return true;
     await this.exitRemoteMode();
     return false;
   }
 
+  /** frame is in percent; converted to mm/s here, left wheel mirrored. A single wheel gets its own side of the frame. */
   async send(frame) {
-    const [l, r] = await Promise.all([this.left.sendRemoteSpeed(-frame.left), this.right.sendRemoteSpeed(frame.right)]);
-    return l && r;
+    const isStop = frame.left === 0 && frame.right === 0;
+    const jobs = [];
+    if (this.mode !== 'right' && this.left) jobs.push(this.left.drive(-percentToMmps(frame.left), isStop));
+    if (this.mode !== 'left' && this.right) jobs.push(this.right.drive(percentToMmps(frame.right), isStop));
+    const r = await Promise.all(jobs);
+    return r.every(Boolean);
   }
 
   async exitRemoteMode(pauseMs = 40) {
     for (let i = 0; i < 3; i++) {
-      await Promise.all([this.left.sendRemoteSpeed(0), this.right.sendRemoteSpeed(0)]);
+      await Promise.all(this.active.map((w) => w.sendRemoteSpeed(0)));
       if (pauseMs) await new Promise((r) => setTimeout(r, pauseMs));
     }
-    await this.left.exitRemoteMode();
-    await this.right.exitRemoteMode();
+    for (const w of this.active) await w.exitRemoteMode();
   }
 }
 
 export class DriveSupervisor {
-  constructor(link, { mapper, loopInterval = 0.1, inputTimeout = 0.5, linkTimeout = 2.0, now = () => Date.now() / 1000 } = {}) {
+  constructor(link, { mapper, loopInterval = 0.05, inputTimeout = 0.5, linkTimeout = 2.0, now = () => Date.now() / 1000 } = {}) {
     this.link = link;
     this.now = now;
     this.mapper = mapper ?? new Mapper(defaultMapperConfig(), now);

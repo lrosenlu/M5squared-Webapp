@@ -6,17 +6,24 @@ import {
   PacketBuilder, POS, PARAM, SVC, DEV, SYSTEM_MODE_CONNECT, DRIVE_BIT, ASSIST, SELECTABLE_PROFILES,
   parseHeader, isAck, isNack, parseSOC, parseAssistLevel, parseDriveMode, parseDriveProfile,
   parseProfileParams, parseCruiseValues, parseDuoDriveParams, parseSWVersion,
-  nearestRaw, STANDARD_TIER_MAX_RAW,
+  nearestRaw, STANDARD_TIER_MAX_RAW, MAX_SPEED_MMPS,
 } from './packets.js';
 import { toHexSpaced } from './protocol.js';
 
 const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
 
-/** Defence in depth: whatever the caller asks, remote speed is clamped here. */
-export const REMOTE_SPEED_HARD_LIMIT = 250;
+/** Defence in depth: whatever the caller asks, remote speed (mm/s) is clamped here. 2361 mm/s = 8.5 km/h. */
+export const REMOTE_SPEED_HARD_LIMIT = MAX_SPEED_MMPS;
+
+// Remote-mode handshake timing, from the firmware that drives real wheels (m25_ble.cpp _connectWheel).
+export const ARM_TIMING = { edgePulseMs: 45, armSettleMs: 80, rearmMs: 90, readbackMs: 180, attempts: 4, keepAliveMs: 80 };
 
 export class WheelSession {
-  constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000 } = {}) {
+  constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000, timing = ARM_TIMING, now = () => Date.now() } = {}) {
+    this.timing = { ...ARM_TIMING, ...timing };
+    this.now = now;
+    this.driveBits = 0;        // last drive-mode byte we wrote (REMOTE/CRUISE/AUTO_HOLD bits)
+    this.lastModeWrite = 0;
     this.side = side;
     this.transport = transport;
     this.builder = new PacketBuilder();
@@ -80,6 +87,7 @@ export class WheelSession {
     s.cruise = await this._read(() => b.readCruiseValues(), PARAM.CRUISE_VALUES, parseCruiseValues); await sleep(this.commandDelayMs);
     s.duo = await this._read(() => b.readDuoDriveParams(), PARAM.STATUS_DUO, parseDuoDriveParams); await sleep(this.commandDelayMs);
     s.firmware = await this._read(() => b.readSWVersion(), PARAM.STATUS_SW_VERSION, parseSWVersion);
+    s.src = this.transport.lastSource ?? null; // wheel's own source id: 2 = left, 3 = right
     s.updated = Date.now();
     s.hasData = [s.battery, s.assistLevel, s.driveMode, s.firmware].some((v) => v !== null);
     return s;
@@ -91,7 +99,8 @@ export class WheelSession {
   }
 
   async writeAssistLevel(level) {
-    if (level !== ASSIST.NORMAL && level !== ASSIST.OUTDOOR) return false; // Learning is not switchable here
+    // 0 = Normal/Indoor, 1 = Outdoor, 2 = Learning (the firmware cycles all three on real wheels).
+    if (![ASSIST.NORMAL, ASSIST.OUTDOOR, ASSIST.LEARNING].includes(level)) return false;
     await this.initConnection(); await sleep(this.commandDelayMs);
     return this._write(this.builder.writeAssistLevel(level));
   }
@@ -124,28 +133,96 @@ export class WheelSession {
     return after === null || after.maxSpeedRaw === raw;
   }
 
-  /** Try cruise+remote first (many variants need it), then remote only, like upstream. */
+  /**
+   * Remote-mode handshake exactly as the firmware does it on real wheels (up to 4 attempts):
+   * SYSTEM_MODE=connect, edge pulse 0x00 -> 0x04, then 0x06 (remote+cruise) followed by 0x04 (remote only),
+   * settle, and only count success when a READ_DRIVE_MODE shows the REMOTE bit latched.
+   */
   async enterRemoteMode() {
-    await this.initConnection(); await sleep(this.commandDelayMs);
-    for (const mask of [DRIVE_BIT.REMOTE | DRIVE_BIT.CRUISE, DRIVE_BIT.REMOTE]) {
-      if (await this._write(this.builder.writeDriveMode(mask))) return true;
+    const T = this.timing;
+    const bits = (m) => this.builder.writeDriveMode(m);
+    for (let attempt = 1; attempt <= T.attempts; attempt++) {
+      const init = this.builder.writeSystemMode(SYSTEM_MODE_CONNECT);
+      if (!(await this._send(init))) { await sleep(T.rearmMs); continue; }
+      // Wheels answer the init; a short wait keeps the following writes from racing it.
+      await sleep(T.edgePulseMs);
+      if (!(await this._send(bits(0x00)))) { await sleep(T.rearmMs); continue; }
+      await sleep(T.edgePulseMs);
+      if (!(await this._send(bits(DRIVE_BIT.REMOTE)))) { await sleep(T.rearmMs); continue; }
+      await sleep(T.edgePulseMs);
+      if (attempt > 1) await sleep(T.rearmMs);
+      let armed = false;
+      for (const mode of [DRIVE_BIT.REMOTE | DRIVE_BIT.CRUISE, DRIVE_BIT.REMOTE]) {
+        if (await this._send(bits(mode))) { armed = true; this.driveBits = mode; this.lastModeWrite = this.now(); }
+        await sleep(T.edgePulseMs);
+      }
+      if (!armed) { await sleep(T.rearmMs); continue; }
+      await sleep(T.armSettleMs);
+      if (await this._remoteLatched()) { return true; }
+      // forced re-arm, then one more readback (firmware does the same)
+      for (const mode of [DRIVE_BIT.REMOTE | DRIVE_BIT.CRUISE, DRIVE_BIT.REMOTE]) { if (await this._send(bits(mode))) this.driveBits = mode; }
+      await sleep(T.readbackMs);
+      if (await this._remoteLatched()) { return true; }
+      await sleep(T.rearmMs);
     }
+    this.driveBits = 0;
     return false;
+  }
+
+  async _send(packet) {
+    try { await this.transport.send(packet); return true; } catch { return false; }
+  }
+
+  async _remoteLatched() {
+    const dm = await this._read(() => this.builder.readDriveMode(), PARAM.STATUS_DRIVE_MODE, parseDriveMode);
+    if (!dm) return false;
+    this.driveBits = dm.raw;
+    return !!(dm.raw & DRIVE_BIT.REMOTE);
   }
 
   async exitRemoteMode() {
     await this.initConnection(); await sleep(this.commandDelayMs);
-    return this._write(this.builder.writeDriveMode(0));
+    const ok = await this._write(this.builder.writeDriveMode(0));
+    if (ok) this.driveBits = 0;
+    return ok;
   }
 
+  /** Re-write the drive-mode byte when it differs or is older than keepAliveMs: wheels drop remote mode silently. */
+  async _ensureDriveMode(target) {
+    const stale = this.now() - this.lastModeWrite >= this.timing.keepAliveMs;
+    if (this.driveBits === target && !stale) return true;
+    const ok = await this._send(this.builder.writeDriveMode(target));
+    if (ok) { this.driveBits = target; this.lastModeWrite = this.now(); }
+    return ok;
+  }
+
+  /**
+   * One motor command in mm/s (already sign-corrected for this wheel). Like the firmware: keep REMOTE set (refreshed
+   * every keepAliveMs), then write the speed. A stop writes speed 0 first, then drops CRUISE but stays in REMOTE.
+   */
+  async drive(mmps, isStop = false) {
+    const speed = Math.max(-REMOTE_SPEED_HARD_LIMIT, Math.min(REMOTE_SPEED_HARD_LIMIT, Math.trunc(mmps)));
+    if (isStop || speed === 0) {
+      const sent = await this._send(this.builder.writeRemoteSpeed(0));
+      if (!sent) return false;
+      return this._ensureDriveMode((this.driveBits | DRIVE_BIT.REMOTE) & ~DRIVE_BIT.CRUISE & 0xff);
+    }
+    if (!(await this._ensureDriveMode((this.driveBits | DRIVE_BIT.REMOTE) & 0xff))) return false;
+    return this._send(this.builder.writeRemoteSpeed(speed));
+  }
+
+  /** Hill hold while in remote mode keeps the REMOTE bit (the byte is written whole). */
+  async setHillHold(enabled) {
+    const bits = enabled ? (this.driveBits | DRIVE_BIT.AUTO_HOLD) : (this.driveBits & ~DRIVE_BIT.AUTO_HOLD);
+    const ok = await this._send(this.builder.writeDriveMode(bits & 0xff));
+    if (ok) { this.driveBits = bits & 0xff; this.lastModeWrite = this.now(); }
+    return ok;
+  }
+
+  /** Fire-and-forget speed write, no mode handling (used for the safety stop bursts on exit). */
   async sendRemoteSpeed(speed) {
     const s = Math.max(-REMOTE_SPEED_HARD_LIMIT, Math.min(REMOTE_SPEED_HARD_LIMIT, Math.trunc(speed)));
-    try {
-      await this.transport.send(this.builder.writeRemoteSpeed(s));
-      return true;
-    } catch {
-      return false;
-    }
+    return this._send(this.builder.writeRemoteSpeed(s));
   }
 }
 

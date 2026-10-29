@@ -5,6 +5,9 @@ import { WheelSession, MockWheel } from './session.js';
 import { WheelPair, DriveSupervisor, State, DriveMode, defaultMapperConfig, Mapper } from './drive.js';
 import { ASSIST_NAMES, PROFILES, SELECTABLE_PROFILES, selectableKmh, rawToKmh, MAX_SPEED_MMPS, SPEED_RAW, STANDARD_TIER_MAX_RAW, validateProfileParams } from './packets.js';
 import { PRESETS, SLOPE_VALUES, SPEED_BIAS_VALUES } from './presets.js';
+import { processAnalyze, parseHex } from './analyzer.js';
+import { processDecrypt, processEncrypt } from './packettool.js';
+import { toUpstreamStatus, formatWheelStatus } from './report.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view');
@@ -43,6 +46,7 @@ const app = {
   driveAck: false,
   driveMode: DriveMode.SLOW,
   invertSteering: store.get('invertSteering', false),
+  useGamepad: false,
   pad: { vx: 0, vy: 0, held: false },
   keyDraft: { left: '', right: '' },
   sync: true,                             // settings that must match are ALWAYS sent to both wheels when both are connected
@@ -279,7 +283,8 @@ function viewWheels() {
              placeholder: store.get('key.' + side) ? 'Saved key will be used' : 'Paste or type the key',
              value: app.keyDraft[side], oninput: (e) => { app.keyDraft[side] = e.target.value; } }),
            h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side) }, 'Connect'),
-             h('button', { class: 'btn ghost', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side, true) }, 'Show all devices')),
+             h('button', { class: 'btn ghost', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side, true) }, 'Show all devices'),
+             h('button', { class: 'btn ghost', onclick: () => scanKey(side) }, 'Scan QR')),
            h('p', { class: 'mut' }, 'Wheel not listed? Switch it on, close the official app, and unpair it from the phone\'s Bluetooth settings, then try "Show all devices".')],
       w.busy && h('p', { class: 'mut' }, w.busy),
       w.error && h('p', { class: 'bad' }, w.error));
@@ -350,7 +355,8 @@ function statusCard(side) {
     h('select', { disabled: locked, onchange: (e) => apply(side, 'Writing...', (x) => x.writeDriveProfile(parseInt(e.target.value, 10))) },
       SELECTABLE_PROFILES.map((p) => h('option', { value: p, selected: s?.profile === p }, PROFILES[p]))),
     h('label', { class: 'chk' }, h('input', { type: 'checkbox', disabled: locked, checked: !!s?.driveMode?.autoHold, onchange: (e) => apply(side, 'Writing...', (x) => x.writeAutoHold(e.target.checked)) }), h('span', {}, 'Auto-hold (brake on slopes)')),
-    h('div', { class: 'row' }, h('button', { class: 'btn ghost', disabled: locked, onclick: () => refresh(side) }, 'Refresh')),
+    h('div', { class: 'row' }, h('button', { class: 'btn ghost', disabled: locked, onclick: () => refresh(side) }, 'Refresh'),
+      s && h('button', { class: 'btn ghost', onclick: () => copyReport(side) }, 'Copy report')),
     w.busy && h('p', { class: 'mut' }, w.busy), w.error && h('p', { class: 'bad' }, w.error));
 }
 
@@ -482,6 +488,7 @@ function viewDrive() {
     out.push(h('div', { class: 'card' },
       h('h2', {}, 'Remote drive'),
       h('p', { class: 'warn' }, 'Experimental. This moves a real wheelchair. Test with the wheels lifted off the ground first, with a helper present. Never use while seated in or near traffic, stairs, ramps or crowds.'),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.useGamepad, onchange: (e) => { app.useGamepad = e.target.checked; } }), h('span', {}, 'Use a game controller: left stick steers, hold any bumper or trigger to move (release = stop). Press a button once so the browser sees it.')),
       h('label', {}, 'Wheels to drive'), h('div', { class: 'seg' }, wheelModeButtons()),
       batteryNotice(),
       mismatch() && h('p', { class: 'bad' }, 'A wheel identifies itself as the opposite side. Fix the Left/Right assignment before driving.'),
@@ -585,7 +592,18 @@ function attachPad() {
 }
 
 // Keep the supervisor's input watchdog fed while the finger is down (even if perfectly still).
-setInterval(() => { if (app.pad.held && app.sup) app.sup.setInput(app.pad.vx, app.pad.vy, true, app.driveMode); }, 100);
+setInterval(() => {
+  if (!app.sup) return;
+  if (app.useGamepad) {
+    // Hold a shoulder button/trigger as the deadman. Letting go (or unplugging) drops the deadman immediately.
+    const gp = [...(navigator.getGamepads?.() ?? [])].find((g) => g && g.connected);
+    const dead = !!gp && [4, 5, 6, 7].some((i) => gp.buttons[i]?.pressed);
+    const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v);
+    app.sup.setInput(gp ? -dz(gp.axes[1] ?? 0) : 0, gp ? dz(gp.axes[0] ?? 0) : 0, dead, app.driveMode);
+    return;
+  }
+  if (app.pad.held) app.sup.setInput(app.pad.vx, app.pad.vy, true, app.driveMode);
+}, 50);
 
 // Leaving the app / hiding the page must stop the chair.
 const bail = (why) => { if (app.sup && (app.sup.state === State.ARMED || app.sup.state === State.DRIVING)) app.sup.emergencyStop(why); app.pad = { vx: 0, vy: 0, held: false }; };
@@ -606,6 +624,7 @@ function viewAbout() {
       h('p', { class: 'mut' }, 'Provided without warranty. Use only with wheels you own. Changing drive settings or driving remotely can affect safety, warranty and legality. This web port has not been verified on real hardware.')),
     h('div', { class: 'card' }, h('h2', {}, 'Source'),
       h('p', { class: 'mut' }, 'AGPL-3.0: if you host a modified copy, you must offer its source to users. See LICENSE and NOTICE.md in the project.')),
+    packetToolsCard(),
     h('div', { class: 'card' }, h('h2', {}, 'Read probe'),
       h('p', { class: 'mut' }, 'Send one READ request to a connected wheel to explore what it reports (for example battery voltage, if your firmware supports it). Format: service param [payload], hex. Only read parameters (ending in 1) are allowed. Replies appear below and in the log.'),
       h('div', { class: 'seg' }, SIDES.map((sd) => h('button', { class: app.probe.side === sd ? 'on' : '', onclick: () => { app.probe.side = sd; render(); } }, sd))),
@@ -630,6 +649,80 @@ async function runProbe() {
     out(reply ? 'Reply: ' + Array.from(reply).map((x) => x.toString(16).padStart(2, '0')).join(' ') : 'No reply (timeout).');
   } catch (e) { out('Error: ' + (e.message || e)); }
 }
+// ------------------------------------------------------------------ packet tools (m25_analyzer / m25_decrypt / m25_encrypt)
+const tool = { mode: 'analyze', fmt: 'text', keySrc: 'left', keyText: '', input: '', out: '' };
+function toolKey() {
+  if (tool.keySrc === 'paste') return parseKeyInput(tool.keyText.trim());
+  const k = wheels[tool.keySrc].transport?.key;
+  if (!k) throw new Error('That wheel is not connected, so its key is unknown. Paste a key instead.');
+  return k;
+}
+function runTool() {
+  let r;
+  try {
+    if (tool.mode === 'analyze') r = processAnalyze(tool.input, tool.fmt, true, true);
+    else if (tool.mode === 'decrypt') r = processDecrypt({ key: toolKey() }, tool.input, { scope: 'data' });
+    else r = processEncrypt(toolKey(), tool.input, { verbose: true });
+  } catch (e) { r = { ok: false, out: '', err: 'ERROR: ' + (e.message || e) + '\n' }; }
+  tool.out = (r.out + (r.err ? '\n' + r.err : '')).trimEnd();
+  const el = $('#toolOut'); if (el) el.textContent = tool.out;
+}
+function packetToolsCard() {
+  const seg = (key, opts) => h('div', { class: 'seg' }, opts.map(([v, t]) => h('button', { class: tool[key] === v ? 'on' : '', onclick: () => { tool[key] = v; render(); } }, t)));
+  return h('div', { class: 'card' }, h('h2', {}, 'Packet tools'),
+    h('p', { class: 'mut' }, 'The same analyzer, decrypt and encrypt tools as the upstream scripts, with identical output. Keys of connected wheels are used without being shown.'),
+    seg('mode', [['analyze', 'Analyze'], ['decrypt', 'Decrypt'], ['encrypt', 'Encrypt']]),
+    tool.mode === 'analyze' && seg('fmt', [['text', 'Text'], ['json', 'JSON'], ['oneline', 'One line']]),
+    tool.mode !== 'analyze' && [seg('keySrc', [['left', 'Left key'], ['right', 'Right key'], ['paste', 'Paste key']]),
+      tool.keySrc === 'paste' && h('input', { type: 'password', autocomplete: 'off', placeholder: '32 hex digits or 22-character QR text', value: tool.keyText, oninput: (e) => { tool.keyText = e.target.value; } })],
+    h('textarea', { rows: 4, spellcheck: 'false', autocapitalize: 'off', placeholder: tool.mode === 'analyze' ? 'Decrypted SPP hex, e.g. 01 80 05 01 08 11' : tool.mode === 'decrypt' ? 'Encrypted packet hex' : 'SPP hex to encrypt',
+      oninput: (e) => { tool.input = e.target.value; } }, tool.input),
+    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: runTool }, 'Run')),
+    h('pre', { id: 'toolOut' }, tool.out));
+}
+
+async function copyReport(side) {
+  const w = wheels[side]; if (!w.status) return;
+  const text = formatWheelStatus(toUpstreamStatus(w.status), side === 'left' ? 'Left' : 'Right', w.transport?.name ?? '?');
+  try { await navigator.clipboard.writeText(text); w.error = ''; trace('Status report copied'); } catch { /* fall through */ }
+  const el = $('#log'); app.probe.out = text; if (el) el.textContent = text;
+  alert(text);
+}
+
+// ------------------------------------------------------------------ QR scanner
+let jsqrPromise = null;
+function loadJsQR() {
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+  jsqrPromise ??= new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'vendor/jsQR.js'; s.onload = () => res(window.jsQR); s.onerror = () => rej(new Error('QR decoder failed to load')); document.head.append(s); });
+  return jsqrPromise;
+}
+async function scanKey(side) {
+  const dlg = $('#scanDlg'), video = $('#scanVideo'), msg = $('#scanMsg');
+  if (!navigator.mediaDevices?.getUserMedia) { wheels[side].error = 'This browser cannot open the camera. Type the QR text instead.'; return render(); }
+  let stream, stop = false;
+  const cleanup = () => { stop = true; try { stream?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ } video.srcObject = null; };
+  dlg.addEventListener('close', cleanup, { once: true });
+  msg.textContent = 'Starting camera...'; dlg.showModal();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = stream; await video.play();
+    msg.textContent = 'Point the camera at the QR code on the wheel label.';
+    const detector = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+    const jsQR = detector ? null : await loadJsQR();
+    const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+    while (!stop) {
+      await new Promise((r) => setTimeout(r, 150));
+      if (!video.videoWidth) continue;
+      let text = null;
+      if (detector) { const f = await detector.detect(video).catch(() => []); text = f[0]?.rawValue ?? null; }
+      else { canvas.width = video.videoWidth; canvas.height = video.videoHeight; ctx.drawImage(video, 0, 0); const img = ctx.getImageData(0, 0, canvas.width, canvas.height); text = jsQR(img.data, img.width, img.height)?.data ?? null; }
+      if (!text) continue;
+      try { parseKeyInput(text.trim()); } catch { msg.textContent = 'That QR code is not a wheel key. Keep scanning...'; continue; }
+      app.keyDraft[side] = text.trim(); dlg.close(); wheels[side].error = ''; render(); return;
+    }
+  } catch (e) { dlg.close(); wheels[side].error = 'Camera error: ' + (e.message || e); render(); }
+}
+
 function renderLogOnly() { const l = $('#log'); if (l) l.textContent = app.log.join('\n'); }
 
 // ------------------------------------------------------------------ boot

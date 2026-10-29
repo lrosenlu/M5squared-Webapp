@@ -50,3 +50,4 @@ a{color:var(--acc)}
 .speedo-num { font-size: 2rem; font-weight: 700; margin-top: -2.2rem; }
 .speedo-num span { font-variant-numeric: tabular-nums; }
 #probeOut { white-space: pre-wrap; word-break: break-all; }
+textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--fg);font:13px ui-monospace,monospace;margin:6px 0}

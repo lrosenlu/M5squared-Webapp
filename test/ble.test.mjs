@@ -19,7 +19,9 @@ function fakeDevice(profile) {
   const emit = (chunk) => listeners.characteristicvaluechanged?.({ target: { value: new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength) } });
   const write = {
     maxChunk: 0,
+    limit: Infinity, // simulate a small MTU: writes longer than this are rejected
     async writeValueWithoutResponse(part) {
+      if (part.length > write.limit) throw new Error('value too long');
       write.maxChunk = Math.max(write.maxChunk, part.length);
       buf = concat(buf, part);
       const spp = decryptPacket(buf, key);
@@ -46,6 +48,17 @@ function fakeDevice(profile) {
   return { device, wheel, write };
 }
 
+test('falls back to 20-byte chunks when the single write is rejected', async () => {
+  const { device, write } = fakeDevice(PROFILES[0]);
+  write.limit = 20;
+  const t = new BLEWheelTransport(device, key);
+  await t.connect();
+  const s = new WheelSession('left', t, { retries: 1, commandDelayMs: 0, replyTimeoutMs: 500 });
+  assert.equal((await s.readStatus()).battery, 85);
+  assert.ok(write.maxChunk <= 20);
+  await t.disconnect();
+});
+
 for (const profile of PROFILES) {
   test(`full status read over fake GATT: ${profile.name}`, async () => {
     const { device, write } = fakeDevice(profile);
@@ -56,7 +69,7 @@ for (const profile of PROFILES) {
     const st = await s.readStatus();
     assert.equal(st.battery, 85);
     assert.equal(st.firmware.text, 'V03.005.000');
-    assert.ok(write.maxChunk <= 20);
+    assert.ok(write.maxChunk > 20, 'whole packet is written in a single GATT write, like upstream');
     await t.disconnect();
     assert.equal(t.isConnected, false);
   });

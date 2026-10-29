@@ -158,13 +158,25 @@ export class BLEWheelTransport {
     this.trace?.(`[TX ${this.name}] ${toHexSpaced(spp)}`);
     const packet = encryptPacket(spp, this.key);
     return this._enqueue(async () => {
-      for (let i = 0; i < packet.length; i += CHUNK) {
-        const part = packet.slice(i, i + CHUNK);
-        const wp = this.writeChar.properties;
-        if (wp && wp.write && this.writeChar.writeValueWithResponse) await this.writeChar.writeValueWithResponse(part);
-        else if (this.writeChar.writeValueWithoutResponse) await this.writeChar.writeValueWithoutResponse(part);
+      // Upstream (m25_bluetooth_ble.py) writes the whole encrypted packet in ONE GATT write, and uses
+      // write-with-response only when the characteristic supports nothing else. Do the same; fall
+      // back to 20-byte chunks only if the single write is rejected (e.g. value too long for the MTU).
+      const wp = this.writeChar.properties;
+      const needsResponse = !!(wp && wp.write && !wp.writeWithoutResponse);
+      const writeOne = async (part) => {
+        if (needsResponse && this.writeChar.writeValueWithResponse) await this.writeChar.writeValueWithResponse(part);
+        else if (!needsResponse && this.writeChar.writeValueWithoutResponse) await this.writeChar.writeValueWithoutResponse(part);
         else await this.writeChar.writeValue(part);
-        if (i + CHUNK < packet.length) await sleep(12);
+      };
+      try {
+        await writeOne(packet);
+      } catch (e) {
+        if (!this.isConnected) throw e;
+        this.trace?.(`[GATT] single write failed (${e.message || e}); retrying in ${CHUNK}-byte chunks`);
+        for (let i = 0; i < packet.length; i += CHUNK) {
+          await writeOne(packet.slice(i, i + CHUNK));
+          if (i + CHUNK < packet.length) await sleep(12);
+        }
       }
     });
   }

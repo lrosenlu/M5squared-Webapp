@@ -62,6 +62,31 @@ use "Forget key" on shared devices.
   (factory/software reset, pairing, firmware, key management) are not implemented.
 - Browsers throttle timers in background tabs: leaving the app while driving triggers the fail-safe.
 
+## Verified against upstream (6static/m5squared)
+
+`npm test` (100 tests) replays results produced by the **upstream Python** itself:
+
+| Area | How it is checked |
+|---|---|
+| Frame, CRC-16, byte stuffing, AES/CBC/ECB, QR→key | 400 random keys/IVs/payloads, plus wrong-key, bit-flip, truncated and junk-prefixed packets (all must decrypt or fail exactly as upstream does) |
+| Packet builders | 300 random commands, byte-for-byte |
+| Response parsers | 5,400 random payloads incl. short/invalid ones (same values, same `null`s) |
+| Protocol constants | 45 service/param/bit/table/name groups compared mechanically |
+| Retry / ACK / NACK / echo / wrong-telegram-id handling | 38 scripted wheel-reply scenarios: same result *and* same number of attempts as `ECSRemote.read_value/write_value` |
+| Drive mapper (deadzone, curve, caps, differential, ramp) | 400 random control sequences (8,914 steps) with a fake clock |
+
+Regenerate with `tools/gen_*.py <path-to-upstream>`. **Not** verified: anything on real wheels over BLE.
+
+## Intentional differences from upstream
+
+- **Steering sign:** upstream documents `vy` as "right = +" but computes `left = vx - vy`, which steers the opposite way. Here positive = right turn (`invertSteering` flips it). The mapper test feeds the JS mapper `-vy` to compare everything else.
+- **Ramp:** always starts from zero after a stop; time step capped at 0.25 s.
+- **Watchdogs:** the link timer only refreshes after a *successful* send (upstream refreshes even on failure); the input timeout only applies while the dead-man is held; 10 Hz loop instead of 20 Hz; no stale-command heartbeat; fail-safe if either wheel link drops.
+- **Max speed:** snaps to the wheel's own table (6.0 km/h = 1667) instead of `int(km/h/0.0036)` (1666), is blocked above 6.0 km/h without an explicit override, and is read back after writing.
+- **BLE transport:** reassembles notifications and skips stray non-frame bytes (some wheels send `2B 00 00`); writes in 20-byte chunks with response when supported (upstream sends one write, without response when available).
+- **Profile level index:** upstream is inconsistent (ECS code uses 0/1, its GUI passes 1/2). This app uses 0 = Normal, 1 = Outdoor, as `ECSRemote` does.
+- **Not implemented, on purpose:** factory/software reset, pairing, firmware/memory, key management, Learning level.
+
 ## Layout
 
 `src/aes.js` pure-JS AES-128 (WebCrypto has no ECB) · `crypto.js` framing/QR keys · `packets.js` builders &

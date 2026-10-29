@@ -29,6 +29,8 @@
 </nav>
 <dialog id="dlg"><form method="dialog"><h2 id="dlgTitle"></h2><p id="dlgBody"></p>
   <div class="row"><button value="cancel" class="ghost">Cancel</button><button value="ok" class="danger" id="dlgOk">OK</button></div></form></dialog>
+<dialog id="scanDlg"><form method="dialog"><h2>Scan QR label</h2><video id="scanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000"></video>
+  <p id="scanMsg" class="mut">Point the camera at the QR code on the wheel label.</p><div class="row"><button value="cancel" class="ghost">Cancel</button></div></form></dialog>
 <script type="module" src="src/app.js"></script>
 </body>
 </html>

@@ -157,7 +157,8 @@ export function parseBmsState(p) {
 
 export function parseDuoDriveParams(p) {
   if (p.length < 3) return null;
-  return { mountingSide: p[0], mounting: { 1: 'Right', 2: 'Left' }[p[0]] ?? 'Unknown', speedSensibility: p[1], steeringDynamic: p[2] };
+  // mountingName matches upstream exactly ('Unknown(n)' for unrecognised values); `mounting` is the UI-friendly variant.
+  return { mountingSide: p[0], mountingName: { 0: 'Unknown', 1: 'Right', 2: 'Left' }[p[0]] ?? `Unknown(${p[0]})`, mounting: { 1: 'Right', 2: 'Left' }[p[0]] ?? 'Unknown', speedSensibility: p[1], steeringDynamic: p[2] };
 }
 
 export function parseSWVersion(p) {

@@ -110,3 +110,21 @@ Also included: live telemetry (speed, push-rim sensor, push count, wheel error, 
 
 Not available: battery **voltage**. The documented wheel protocol has no voltage read; use the probe on your own wheels to
 look for one. Untested on real hardware.
+
+## Upstream parity tests
+
+Each row compares this app's output with the real Python scripts on generated inputs (regenerate with the `tools/gen_*.py` scripts).
+
+| Upstream | What is compared | Test |
+|---|---|---|
+| m25_crypto, m25_protocol, m25_qr_to_key | frames, CRC, byte stuffing, AES, key conversion | crypto, fuzz |
+| m25_ecs ResponseParser / builders | every parser and packet builder | core, session |
+| m25_ecs ECSRemote session logic | read/write retries, max-speed read-back | session_fuzz |
+| core/mapper.py and the m25-remote firmware mapper | per-step output over random sequences | mapper_fuzz, fw_mapper_fuzz |
+| m25_analyzer | parse, warnings, text/JSON/one-line output, 1,000 packets | tools |
+| m25_decrypt, m25_encrypt | stdout and diagnostics for good, corrupt, truncated, wrong-key packets, both scopes, multi-key | tools |
+| m25_utils.parse_hex | accepted inputs and Python's exact error text | tools |
+| ECSRemote.format_wheel_status | status report text, 1,500 payload sets | report |
+| m25_ecs_driveprofiles | factory presets and limits | presets |
+
+Known deliberate differences: speed in CRUISE_VALUES is decoded signed (real wheels send reverse as a negative number; upstream documents it as unsigned), and the BMS charging read is experimental because no upstream script uses it.

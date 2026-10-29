@@ -15,3 +15,7 @@ The remote-drive path (mm/s speed units, arming handshake, drive-mode refresh, s
 feel presets) is re-implemented from the behaviour of https://github.com/6static/m25-remote, the firmware proven on
 real wheels. That repository carries no licence file, so no code was copied; behaviour was ported and verified
 against a natively compiled copy of its mapper (test/fw_mapper_fuzz.test.mjs).
+
+## jsQR (vendor/jsQR.js)
+
+QR decoding fallback for browsers without BarcodeDetector. jsQR 1.4.0, Apache License 2.0, (c) Cosmo Wolfe. Licence text: vendor/jsQR.LICENSE.

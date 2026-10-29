@@ -148,13 +148,15 @@ export class WheelPair {
 }
 
 export class DriveSupervisor {
-  constructor(link, { mapper, loopInterval = 0.05, inputTimeout = 0.5, linkTimeout = 2.0, now = () => Date.now() / 1000 } = {}) {
+  constructor(link, { mapper, loopInterval = 0.05, inputTimeout = 0.5, linkTimeout = 2.0, armIdleTimeout = 60, now = () => Date.now() / 1000 } = {}) {
     this.link = link;
     this.now = now;
     this.mapper = mapper ?? new Mapper(defaultMapperConfig(), now);
     this.loopInterval = loopInterval;
     this.inputTimeout = inputTimeout;
     this.linkTimeout = linkTimeout;
+    this.armIdleTimeout = armIdleTimeout; // seconds armed without movement before auto-disarm (0 = never)
+    this.lastActiveTime = 0;
     this._state = State.DISCONNECTED;
     this.failsafeReason = null;
     this.lastCommand = stopFrame();
@@ -179,6 +181,8 @@ export class DriveSupervisor {
     this.lastInputTime = this.now();
   }
 
+  setLowBattery(active) { this.mapper.setLowBatteryLimit(active); }
+
   async connect() {
     if (this.state !== State.DISCONNECTED) return this.state !== State.FAILSAFE;
     this.failsafeReason = null;
@@ -194,6 +198,7 @@ export class DriveSupervisor {
     this.mapper.reset();
     this.lastLinkTime = this.now();
     this.lastInputTime = this.now();
+    this.lastActiveTime = this.now();
     this.state = State.ARMED;
   }
 
@@ -254,7 +259,8 @@ export class DriveSupervisor {
   _neutral() { return Math.abs(this.input.vx) < 0.01 && Math.abs(this.input.vy) < 0.01; }
 
   async _handleArmed() {
-    if (this.input.deadman && !this._neutral()) { this.state = State.DRIVING; return; }
+    if (this.input.deadman && !this._neutral()) { this.lastActiveTime = this.now(); this.state = State.DRIVING; return; }
+    if (this.armIdleTimeout > 0 && this.now() - this.lastActiveTime > this.armIdleTimeout) { await this._sendStop(); this.state = State.PAIRED; return; }
     await this._sendStop();
   }
 
@@ -265,6 +271,7 @@ export class DriveSupervisor {
       if (this.state === State.DRIVING) this.state = State.ARMED;
       return;
     }
+    this.lastActiveTime = this.now();
     const cmd = this.mapper.map(c);
     const ok = await this.link.send(cmd);
     if (ok && this.state === State.DRIVING) this.lastLinkTime = this.now();

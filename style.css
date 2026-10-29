@@ -42,3 +42,11 @@ pre{white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:240px;ov
 dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--card);color:var(--fg);max-width:420px;width:calc(100% - 32px)}
 dialog::backdrop{background:#0009}
 a{color:var(--acc)}
+
+.speedo { text-align: center; }
+.speedo-svg { width: 100%; max-width: 180px; }
+.speedo-bg { stroke: var(--line, #8884); }
+.speedo-fg { stroke: var(--accent, #2a7de1); transition: stroke-dasharray .3s; }
+.speedo-num { font-size: 2rem; font-weight: 700; margin-top: -2.2rem; }
+.speedo-num span { font-variant-numeric: tabular-nums; }
+#probeOut { white-space: pre-wrap; word-break: break-all; }

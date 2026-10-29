@@ -3,7 +3,7 @@ import { parseKeyInput } from './crypto.js';
 import { bluetoothSupported, bluetoothHelp, pickWheel, BLEWheelTransport } from './ble.js';
 import { WheelSession, MockWheel } from './session.js';
 import { WheelPair, DriveSupervisor, State, DriveMode, defaultMapperConfig, Mapper } from './drive.js';
-import { ASSIST_NAMES, PROFILES, SELECTABLE_PROFILES, selectableKmh, rawToKmh } from './packets.js';
+import { ASSIST_NAMES, PROFILES, SELECTABLE_PROFILES, selectableKmh, rawToKmh, PARAM, SVC, MAX_SPEED_MMPS } from './packets.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view');
@@ -30,7 +30,7 @@ const store = {
 // ------------------------------------------------------------------ app state
 const SIDES = ['left', 'right'];
 const wheels = { left: blank(), right: blank() };
-function blank() { return { transport: null, session: null, status: null, busy: '', error: '', demo: false }; }
+function blank() { return { transport: null, session: null, status: null, tele: null, busy: '', error: '', demo: false }; }
 
 const app = {
   tab: 'wheels',
@@ -44,7 +44,13 @@ const app = {
   invertSteering: store.get('invertSteering', false),
   pad: { vx: 0, vy: 0, held: false },
   keyDraft: { left: '', right: '' },
+  sync: store.get('sync', true),          // apply setting changes to both wheels at once
+  wheelMode: 'dual',                      // 'dual' | 'left' | 'right'
+  hillHold: false,
+  probe: { side: 'left', text: '01 21', out: '' },
 };
+const BATT_WARN = 30, BATT_CRITICAL = 15, BATT_LOW_CAP = 20;
+const reconnecting = { left: false, right: false };
 
 const trace = (line) => { app.log.push(line); if (app.log.length > 150) app.log.shift(); if (app.showLog && app.tab === 'about') renderLogOnly(); };
 
@@ -77,7 +83,7 @@ async function connectReal(side, showAll = false) {
   if (other) { w.busy = ''; w.error = `That is the same wheel (${device.name || 'unnamed'}) already connected as ${other}. Pick the OTHER wheel in the list.`; return render(); }
   w.busy = 'Connecting...'; render();
   const transport = new BLEWheelTransport(device, key, { trace });
-  transport.onDisconnect = () => { w.error = 'Disconnected.'; render(); };
+  transport.onDisconnect = () => { w.error = 'Disconnected.'; render(); autoReconnect(side, transport); };
   try {
     await transport.connect();
     w.transport = transport;
@@ -95,6 +101,27 @@ async function connectReal(side, showAll = false) {
   }
   app.keyDraft[side] = '';
   w.busy = ''; render();
+}
+
+/** Reconnect to the same device without the picker (only while remote drive is off). Up to 5 tries, 2 s apart. */
+async function autoReconnect(side, transport) {
+  if (reconnecting[side] || wheels[side].demo || wheels[side].transport !== transport) return;
+  if (app.sup && app.sup.state !== State.DISCONNECTED) return; // never reconnect under a live drive session
+  reconnecting[side] = true;
+  for (let i = 1; i <= 5 && wheels[side].transport === transport; i++) {
+    wheels[side].error = `Disconnected. Reconnecting (${i}/5)...`; render();
+    await new Promise((r) => setTimeout(r, 2000));
+    if (wheels[side].transport !== transport) break;
+    try {
+      await transport.connect();
+      wheels[side].error = '';
+      wheels[side].status = await wheels[side].session.readStatus();
+      break;
+    } catch { /* try again */ }
+  }
+  reconnecting[side] = false;
+  if (wheels[side].transport === transport && !transport.isConnected) wheels[side].error = 'Disconnected. Reconnect failed; use Disconnect, then Connect.';
+  render();
 }
 
 /** Exchange the Left and Right assignments (wheels, sessions and saved keys). Never while driving. */
@@ -136,14 +163,78 @@ async function refresh(side) {
   w.busy = ''; render();
 }
 
+async function applyOne(side, label, fn) {
+  const w = wheels[side]; if (!w.session) return;
+  w.busy = label; w.error = ''; render();
+  let ok = false;
+  try { ok = await fn(w.session); } catch (e) { w.error = e.message || String(e); }
+  if (!ok && !w.error) w.error = 'The wheel did not accept that change.';
+  w.status = await w.session.readStatus();
+  w.busy = ''; render();
+  return ok;
+}
+
+/** Change a setting on this wheel, or on both at once when "Keep both wheels in sync" is on. */
 async function apply(side, label, fn) {
   const w = wheels[side]; if (!w.session) return;
   if (app.sup && app.sup.state !== State.DISCONNECTED) { w.error = 'Turn off remote drive before changing settings.'; return render(); }
-  w.busy = label; w.error = ''; render();
-  const ok = await fn(w.session);
-  if (!ok) w.error = 'The wheel did not accept that change.';
-  w.status = await w.session.readStatus();
-  w.busy = ''; render();
+  const targets = app.sync ? SIDES.filter((sd) => wheels[sd].session && connected(sd)) : [side];
+  await Promise.all(targets.map((sd) => applyOne(sd, label, fn)));
+  if (targets.length > 1) {
+    const [a, b] = targets.map((sd) => wheels[sd].status);
+    if (a && b && (a.assistLevel !== b.assistLevel || a.profile !== b.profile || !!a.driveMode?.autoHold !== !!b.driveMode?.autoHold
+      || a.params?.maxSpeedRaw !== b.params?.maxSpeedRaw)) for (const sd of targets) wheels[sd].error = 'The two wheels ended up with different settings. Check both cards.';
+    render();
+  }
+}
+
+// ------------------------------------------------------------------ telemetry
+const polling = { left: false, right: false };
+const driving = () => !!app.sup && app.sup.state !== State.DISCONNECTED;
+async function pollTelemetry() {
+  for (const side of SIDES) {
+    const w = wheels[side];
+    if (!connected(side) || !w.session || polling[side] || w.busy || reconnecting[side]) continue;
+    polling[side] = true;
+    w.session.readTelemetry({ bms: !driving() }).then((t) => {
+      w.tele = { ...(w.tele || {}), ...t, bms: t.bms ?? w.tele?.bms };
+      if (t.battery != null && w.status) w.status.battery = t.battery;
+    }).catch(() => {}).finally(() => { polling[side] = false; onTelemetry(); });
+  }
+}
+function minBattery() {
+  const v = SIDES.filter(connected).map((sd) => wheels[sd].tele?.battery ?? wheels[sd].status?.battery).filter((x) => x != null);
+  return v.length ? Math.min(...v) : null;
+}
+function onTelemetry() {
+  const b = minBattery();
+  app.sup?.setLowBattery(b != null && b < BATT_LOW_CAP);
+  if (b != null && b < 10 && app.sup && (app.sup.state === State.ARMED || app.sup.state === State.DRIVING)) app.sup.emergencyStop('Battery critically low');
+  if (app.tab === 'status' && !SIDES.some((sd) => wheels[sd].busy)) render();
+  updateSpeedo();
+}
+setInterval(pollTelemetry, 1000);
+
+function speedOf(side) { const c = wheels[side].tele?.cruise; return connected(side) && c ? c.speedKmh : null; }
+function updateSpeedo() {
+  const el = $('#speedo'); if (!el) return;
+  const v = SIDES.map(speedOf).filter((x) => x != null);
+  const avg = v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
+  const max = MAX_SPEED_MMPS * 0.0036;
+  $('#speedoNum').textContent = avg.toFixed(1);
+  $('#speedoArc').setAttribute('stroke-dasharray', `${Math.min(1, avg / max) * 157} 157`);
+  $('#speedoLR').textContent = SIDES.map((sd) => (sd === 'left' ? 'L ' : 'R ') + (speedOf(sd)?.toFixed(1) ?? '-')).join('   ');
+}
+function speedometer() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 120 70'); svg.setAttribute('class', 'speedo-svg');
+  const mk = (d, id, cls) => { const p = document.createElementNS(ns, 'path'); p.setAttribute('d', d); p.setAttribute('fill', 'none'); p.setAttribute('stroke-width', '8'); p.setAttribute('stroke-linecap', 'round'); if (id) p.id = id; p.setAttribute('class', cls); return p; };
+  const arc = 'M 10 60 A 50 50 0 0 1 110 60';
+  svg.append(mk(arc, '', 'speedo-bg'), mk(arc, 'speedoArc', 'speedo-fg'));
+  svg.lastChild.setAttribute('stroke-dasharray', '0 157'); svg.lastChild.setAttribute('pathLength', '157');
+  svg.firstChild.setAttribute('pathLength', '157');
+  return h('div', { id: 'speedo', class: 'card speedo' }, svg, h('div', { class: 'speedo-num' }, h('span', { id: 'speedoNum' }, '0.0'), ' km/h'),
+    h('div', { id: 'speedoLR', class: 'mut' }, ''));
 }
 
 // ------------------------------------------------------------------ views
@@ -153,6 +244,7 @@ function render() {
   const padHeld = app.tab === 'drive' && $('#pad') && app.pad.held;
   if (padHeld) return; // never rebuild the DOM under a finger
   view.replaceChildren(...({ wheels: viewWheels, status: viewStatus, drive: viewDrive, about: viewAbout }[app.tab])());
+  if ($('#pad')) attachPad(); // listeners need the element to be in the DOM
 }
 
 function renderChips() {
@@ -189,7 +281,7 @@ function viewWheels() {
   return [
     ...cards,
     SIDES.some(connected) && h('div', { class: 'card' },
-      h('p', { class: 'mut' }, 'Each wheel reports which side it is mounted on. If the Status tab says a wheel is on the opposite side, swap the assignment here (nothing is reconnected or changed on the wheels).'),
+      h('p', { class: 'mut' }, 'Each wheel reports which side it is (its own id, not the unreliable mounting setting). If the Status tab says a wheel is on the opposite side, swap the assignment here (nothing is reconnected or changed on the wheels).'),
       h('button', { class: 'btn ghost', onclick: swapSides }, 'Swap left / right')),
     h('div', { class: 'card' },
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.remember, onchange: (e) => {
@@ -206,6 +298,8 @@ function viewWheels() {
 function viewStatus() {
   if (!SIDES.some(connected)) return [h('div', { class: 'card mut' }, 'Connect a wheel first.')];
   return [
+    bothConnected() && h('div', { class: 'card' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.sync, onchange: (e) => { app.sync = e.target.checked; store.set('sync', app.sync); render(); } }),
+      h('span', {}, 'Keep both wheels in sync: assist level, max speed, profile and auto-hold changes go to both wheels at once.'))),
     ...SIDES.filter(connected).map(statusCard),
     h('div', { class: 'card' },
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.allowHigh, onchange: async (e) => {
@@ -220,6 +314,7 @@ function statusCard(side) {
   const w = wheels[side], s = w.status, locked = !!w.busy;
   const kv = (k, v) => [h('span', {}, k), h('span', {}, v ?? '-')];
   const level = s?.assistLevel ?? 0;
+  const c = w.tele?.cruise ?? s?.cruise ?? null;
   const cur = s?.params ? Math.round(s.params.maxSpeedKmh * 2) / 2 : null;
   const speeds = selectableKmh(app.allowHigh);
   return h('div', { class: 'card' },
@@ -227,14 +322,21 @@ function statusCard(side) {
     w.transport?.name && h('p', { class: 'mut' }, 'Bluetooth device: ' + w.transport.name),
     s && !s.hasData && h('p', { class: 'bad' }, 'No reply from this wheel. Either the key is not this wheel\'s key, or this slot is connected to the same wheel as the other slot. Disconnect it on the Wheels tab, then reconnect and choose the other device name.'),
     s && h('div', { class: 'kv' },
-      ...kv('Battery', s.battery != null ? s.battery + ' %' : null), ...kv('Firmware', s.firmware?.text),
+      ...kv('Battery', (w.tele?.battery ?? s.battery) != null ? (w.tele?.battery ?? s.battery) + ' %' + (w.tele?.bms?.charging ? ' (charging)' : '') : null), ...kv('Firmware', s.firmware?.text),
       ...kv('Assist level', ASSIST_NAMES[s.assistLevel]), ...kv('Profile', PROFILES[s.profile]),
       ...kv('Max speed', s.params ? s.params.maxSpeedKmh.toFixed(1) + ' km/h' : null),
-      ...kv('Distance', s.cruise ? s.cruise.distanceKm.toFixed(1) + ' km' : null),
-      ...kv('Mounted', s.duo?.mounting), ...kv('Auto-hold', s.driveMode ? (s.driveMode.autoHold ? 'on' : 'off') : null)),
+      ...kv('Charging', w.tele?.bms ? (w.tele.bms.charging ? 'yes' : 'no') : null),
+      ...kv('Voltage', 'not reported by wheel'),
+      ...kv('Speed', c ? c.speedKmh.toFixed(2) + ' km/h' : null),
+      ...kv('Push rim sensor', c ? String(c.pushRim) : null),
+      ...kv('Push count', c ? String(c.pushCount) : null),
+      ...kv('Wheel error', c ? (c.wheelError ? 'code ' + c.wheelError : 'none') : null),
+      ...kv('Distance', c ? c.distanceKm.toFixed(2) + ' km' : null),
+      ...kv('Mounting setting', s.duo?.mounting), ...kv('Auto-hold', s.driveMode ? (s.driveMode.autoHold ? 'on' : 'off') : null)),
     s && srcSide(s) && srcSide(s) !== side && h('p', { class: 'warn' }, `This wheel identifies itself as the ${srcSide(s)} wheel, but you connected it as ${side}. Swap sides before driving.`),
     h('label', {}, 'Assist level'),
     h('div', { class: 'seg' }, [[0, 'Indoor'], [1, 'Outdoor'], [2, 'Learning']].map(([v, t]) => h('button', { class: level === v ? 'on' : '', disabled: locked, onclick: () => apply(side, 'Writing...', (x) => x.writeAssistLevel(v)) }, t))),
+    app.sync && bothConnected() && h('p', { class: 'mut' }, 'Changes here apply to both wheels.'),
     h('label', {}, `Max speed (${ASSIST_NAMES[level] ?? ''} level)`),
     h('select', { disabled: locked || level > 1, onchange: (e) => apply(side, 'Writing...', (x) => x.writeMaxSpeed(level, parseFloat(e.target.value), app.allowHigh)) },
       speeds.map((k) => h('option', { value: k, selected: cur === k }, k.toFixed(1) + ' km/h'))),
@@ -253,8 +355,12 @@ function mismatch() {
   return SIDES.some((s) => { const m = srcSide(wheels[s].status); return m && m !== s; });
 }
 
+const driveSides = () => (app.wheelMode === 'dual' ? SIDES : [app.wheelMode]);
+const driveReady = () => driveSides().every(connected);
+
 function viewDrive() {
-  if (!bothConnected()) return [h('div', { class: 'card mut' }, 'Remote drive needs BOTH wheels connected (Wheels tab).')];
+  if (!driveReady()) return [h('div', { class: 'card mut' }, app.wheelMode === 'dual' ? 'Remote drive needs BOTH wheels connected (Wheels tab), or choose single-wheel mode.' : `Connect the ${app.wheelMode} wheel first.`),
+    h('div', { class: 'seg' }, wheelModeButtons())];
   const sup = app.sup, st = sup?.state ?? State.DISCONNECTED;
   const live = st === State.ARMED || st === State.DRIVING;
   const out = [];
@@ -262,10 +368,12 @@ function viewDrive() {
     out.push(h('div', { class: 'card' },
       h('h2', {}, 'Remote drive'),
       h('p', { class: 'warn' }, 'Experimental. This moves a real wheelchair. Test with the wheels lifted off the ground first, with a helper present. Never use while seated in or near traffic, stairs, ramps or crowds.'),
+      h('label', {}, 'Wheels to drive'), h('div', { class: 'seg' }, wheelModeButtons()),
+      batteryNotice(),
       mismatch() && h('p', { class: 'bad' }, 'A wheel identifies itself as the opposite side. Fix the Left/Right assignment before driving.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.driveAck, onchange: (e) => { app.driveAck = e.target.checked; render(); } }), h('span', {}, 'The wheels are lifted or the area is clear, and I accept responsibility for using this.')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.invertSteering, onchange: (e) => { app.invertSteering = e.target.checked; store.set('invertSteering', app.invertSteering); } }), h('span', {}, 'Invert steering (use if testing on blocks shows left/right reversed)')),
-      h('button', { class: 'btn', disabled: !app.driveAck || mismatch() || st === State.CONNECTING, onclick: enableDrive }, st === State.CONNECTING ? 'Enabling...' : 'Enable remote drive')));
+      h('button', { class: 'btn', disabled: !app.driveAck || mismatch() || batteryLocked() || st === State.CONNECTING, onclick: enableDrive }, st === State.CONNECTING ? 'Enabling...' : 'Enable remote drive')));
   } else {
     out.push(h('div', { class: 'card' },
       h('div', { class: st === State.FAILSAFE ? 'bad' : live ? 'ok' : 'warn' }, 'State: ', st, sup.failsafeReason ? ` (${sup.failsafeReason})` : ''),
@@ -275,27 +383,49 @@ function viewDrive() {
         st === State.PAIRED && h('button', { class: 'btn', onclick: () => { sup.arm(); acquireWakeLock(); render(); } }, 'Arm'),
         live && h('button', { class: 'btn ghost', onclick: async () => { await sup.disarm(); render(); } }, 'Disarm'),
         h('button', { class: 'btn ghost', onclick: disableDrive }, 'Turn off remote'))));
+    out.push(speedometer());
+    out.push(h('div', { class: 'card' }, batteryNotice(),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.hillHold, onchange: async (e) => {
+        app.hillHold = e.target.checked;
+        await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(app.hillHold)));
+      } }), h('span', {}, 'Hill hold (brake on slopes while driving remotely)'))));
     out.push(h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' })));
     out.push(h('div', { class: 'bars' }, h('div', {}, h('div', { class: 'mut' }, 'Left ', h('span', { id: 'lv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'lb' }))),
       h('div', {}, h('div', { class: 'mut' }, 'Right ', h('span', { id: 'rv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'rb' })))));
-    attachPad();
   }
+  setTimeout(updateSpeedo, 0);
   out.push(h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'));
   if (st === State.FAILSAFE) out.push(h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => { await sup.reset(); render(); } }, 'Reset')));
   return out;
 }
 
+function wheelModeButtons() {
+  return [['dual', 'Both'], ['left', 'Left only'], ['right', 'Right only']].map(([m, t]) =>
+    h('button', { class: app.wheelMode === m ? 'on' : '', disabled: driving(), onclick: () => { app.wheelMode = m; render(); } }, t));
+}
+function batteryLocked() { const b = minBattery(); return b != null && b < BATT_CRITICAL; }
+function batteryNotice() {
+  const b = minBattery();
+  if (b == null) return null;
+  if (b < BATT_CRITICAL) return h('p', { class: 'bad' }, `Battery ${b} %: too low to enable remote drive (minimum ${BATT_CRITICAL} %). Charge the wheels.`);
+  if (b < BATT_LOW_CAP) return h('p', { class: 'warn' }, `Battery ${b} %: remote speed is capped to a lower limit.`);
+  if (b < BATT_WARN) return h('p', { class: 'warn' }, `Battery ${b} %: getting low.`);
+  return null;
+}
+
 async function enableDrive() {
+  if (batteryLocked()) return;
   if (!(await confirmDialog('Enable remote drive?', 'Both wheels will switch into remote-control mode and respond to the on-screen joystick. Release the pad or press EMERGENCY STOP to stop.', 'Enable'))) return;
   const mapper = new Mapper({ ...defaultMapperConfig(), invertSteering: app.invertSteering });
-  const link = new WheelPair(wheels.left.session, wheels.right.session);
+  const link = new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode);
   const sup = app.sup = new DriveSupervisor(link, { mapper });
   sup.onStateChange = () => { render(); if (sup.state === State.DISCONNECTED || sup.state === State.FAILSAFE) releaseWakeLock(); };
   sup.onCommand = updateBars;
+  sup.setLowBattery((minBattery() ?? 100) < BATT_LOW_CAP);
   render();
   const ok = await sup.connect();
   if (!ok) { app.sup = null; wheels.left.error = wheels.right.error = ''; alert('Could not switch both wheels into remote mode. Nothing is moving.'); }
-  else sup.startLoop();
+  else { sup.startLoop(); if (app.hillHold) await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(true))); }
   render();
 }
 
@@ -354,10 +484,29 @@ function viewAbout() {
       h('p', { class: 'mut' }, 'Provided without warranty. Use only with wheels you own. Changing drive settings or driving remotely can affect safety, warranty and legality. This web port has not been verified on real hardware.')),
     h('div', { class: 'card' }, h('h2', {}, 'Source'),
       h('p', { class: 'mut' }, 'AGPL-3.0: if you host a modified copy, you must offer its source to users. See LICENSE and NOTICE.md in the project.')),
+    h('div', { class: 'card' }, h('h2', {}, 'Read probe'),
+      h('p', { class: 'mut' }, 'Send one READ request to a connected wheel to explore what it reports (for example battery voltage, if your firmware supports it). Format: service param [payload], hex. Only read parameters (ending in 1) are allowed. Replies appear below and in the log.'),
+      h('div', { class: 'seg' }, SIDES.map((sd) => h('button', { class: app.probe.side === sd ? 'on' : '', onclick: () => { app.probe.side = sd; render(); } }, sd))),
+      h('input', { id: 'probeIn', value: app.probe.text, autocapitalize: 'off', spellcheck: 'false', oninput: (e) => { app.probe.text = e.target.value; } }),
+      h('div', { class: 'row' }, h('button', { class: 'btn ghost', disabled: driving(), onclick: runProbe }, 'Send read')),
+      h('pre', { id: 'probeOut' }, app.probe.out)),
     h('div', { class: 'card' }, h('h2', {}, 'Protocol log'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.showLog, onchange: (e) => { app.showLog = e.target.checked; render(); } }), h('span', {}, 'Show decrypted packets (contains no keys)')),
       app.showLog && logEl),
   ];
+}
+async function runProbe() {
+  const side = app.probe.side, w = wheels[side];
+  const out = (t) => { app.probe.out = t; const el = $('#probeOut'); if (el) el.textContent = t; };
+  if (!connected(side)) return out('Wheel not connected.');
+  const bytes = app.probe.text.trim().split(/[\s,]+/).filter(Boolean).map((x) => parseInt(x, 16));
+  if (bytes.length < 2 || bytes.some((n) => !(n >= 0 && n <= 255))) return out('Enter at least two hex bytes: service param.');
+  if ((bytes[1] & 0x0f) !== 1) return out('Blocked: only read parameters (ending in 1) may be probed.');
+  try {
+    const b = w.session.builder; const pkt = b.packet(bytes[0], bytes[1], bytes.slice(2));
+    const reply = await w.transport.transact(pkt, 1500);
+    out(reply ? 'Reply: ' + Array.from(reply).map((x) => x.toString(16).padStart(2, '0')).join(' ') : 'No reply (timeout).');
+  } catch (e) { out('Error: ' + (e.message || e)); }
 }
 function renderLogOnly() { const l = $('#log'); if (l) l.textContent = app.log.join('\n'); }
 

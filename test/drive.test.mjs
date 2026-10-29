@@ -157,3 +157,14 @@ test('arming sets REMOTE and drive() refreshes mode, stop drops cruise', async (
   assert.equal(L.speeds.at(-1), 0);
   assert.ok(L.driveMode & 4); assert.equal(L.driveMode & 2, 0);
 });
+
+test('telemetry reads speed, push rim, charging from mock', async () => {
+  const L = new MockWheel('L'); await L.connect();
+  L.charging = true; L.speedMmh = 3500; L.pushRim = -5; L.battery = 61;
+  const s = new WheelSession('left', L, { commandDelayMs: 0 });
+  const t = await s.readTelemetry();
+  assert.equal(Math.round(t.cruise.speedKmh * 1000), 3500);
+  assert.equal(t.cruise.pushRim, -5);
+  assert.equal(t.bms.charging, true);
+  assert.equal(t.battery, 61);
+});

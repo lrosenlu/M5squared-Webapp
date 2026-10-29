@@ -45,7 +45,7 @@ const app = {
   invertSteering: store.get('invertSteering', false),
   pad: { vx: 0, vy: 0, held: false },
   keyDraft: { left: '', right: '' },
-  sync: store.get('sync', true),          // apply setting changes to both wheels at once
+  sync: true,                             // settings that must match are ALWAYS sent to both wheels when both are connected
   wheelMode: 'dual',                      // 'dual' | 'left' | 'right'
   hillHold: false,
   probe: { side: 'left', text: '01 21', out: '' },
@@ -304,8 +304,7 @@ function viewWheels() {
 function viewStatus() {
   if (!SIDES.some(connected)) return [h('div', { class: 'card mut' }, 'Connect a wheel first.')];
   return [
-    bothConnected() && h('div', { class: 'card' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.sync, onchange: (e) => { app.sync = e.target.checked; store.set('sync', app.sync); render(); } }),
-      h('span', {}, 'Keep both wheels in sync: assist level, max speed, profile and auto-hold changes go to both wheels at once.'))),
+    syncNotice(),
     ...SIDES.filter(connected).map(statusCard),
     SIDES.some(connected) && paramsCard(),
     h('div', { class: 'card' },
@@ -380,7 +379,7 @@ async function editorWrite() {
   if (driving()) { e.msg = 'Turn off remote drive first.'; return render(); }
   const err = validateProfileParams(e.draft);
   if (err) { e.msg = err; return render(); }
-  const targets = e.target === 'both' ? SIDES.filter(connected) : [e.target].filter(connected);
+  const targets = SIDES.filter(connected);
   if (!targets.length) { e.msg = 'No connected wheel for that target.'; return render(); }
   const clamped = !app.allowHigh && e.draft.maxSpeedRaw > STANDARD_TIER_MAX_RAW;
   const d = e.draft;
@@ -396,6 +395,40 @@ async function editorWrite() {
     wheels[sd].status = await wheels[sd].session.readStatus();
   }
   e.busy = false; e.msg = results.join('; '); render();
+}
+
+function settingsOf(sd) {
+  const s = wheels[sd].status; if (!s) return null;
+  return { assistLevel: s.assistLevel, profile: s.profile, autoHold: !!s.driveMode?.autoHold, maxSpeedRaw: s.params?.maxSpeedRaw };
+}
+function mismatchedSettings() {
+  if (!bothConnected()) return [];
+  const a = settingsOf('left'), b = settingsOf('right'); if (!a || !b) return [];
+  return [['assistLevel', 'assist level'], ['profile', 'drive profile'], ['autoHold', 'auto-hold'], ['maxSpeedRaw', 'max speed']].filter(([k]) => a[k] !== b[k]).map(([, n]) => n);
+}
+function syncNotice() {
+  if (!bothConnected()) return null;
+  const diff = mismatchedSettings();
+  return h('div', { class: 'card' },
+    h('p', { class: diff.length ? 'warn' : 'ok' }, diff.length ? `The wheels differ in: ${diff.join(', ')}.` : 'Both wheels have matching settings.'),
+    h('p', { class: 'mut' }, 'Assist level, max speed, profile, auto-hold and drive parameters are always written to both wheels together.'),
+    diff.length > 0 && h('div', { class: 'row' },
+      h('button', { class: 'btn ghost', onclick: () => matchTo('left') }, 'Match right to left'),
+      h('button', { class: 'btn ghost', onclick: () => matchTo('right') }, 'Match left to right')));
+}
+async function matchTo(src) {
+  if (driving()) return;
+  const dst = src === 'left' ? 'right' : 'left', a = settingsOf(src);
+  if (!(await confirmDialog('Match wheels?', `Copy assist level, profile, auto-hold and max speed from the ${src} wheel to the ${dst} wheel.`, 'Copy'))) return;
+  await applyOne(dst, 'Matching...', async (x) => {
+    let ok = true;
+    if (a.profile != null && a.profile !== settingsOf(dst).profile) ok = (await x.writeDriveProfile(a.profile)) && ok;
+    if (a.assistLevel != null) ok = (await x.writeAssistLevel(a.assistLevel)) && ok;
+    if (a.autoHold !== settingsOf(dst).autoHold) ok = (await x.writeAutoHold(a.autoHold)) && ok;
+    const lvl = a.assistLevel ?? 0;
+    if (a.maxSpeedRaw && lvl <= 1) ok = (await x.writeMaxSpeed(lvl, a.maxSpeedRaw * 0.0036, app.allowHigh)) && ok;
+    return ok;
+  });
 }
 
 function paramsCard() {
@@ -424,8 +457,7 @@ function paramsCard() {
     ...num('rotationThreshold', 'Rotation threshold', 1, 150),
     ...pick('slopeInc', 'Start-up slope (higher = quicker)', SLOPE_VALUES),
     ...pick('slopeDec', 'Coasting slope (higher = quicker)', SLOPE_VALUES),
-    bothConnected() && [h('label', {}, 'Write to'), h('select', { onchange: (ev) => { e.target = ev.target.value; } },
-      [['both', 'Both wheels'], ['left', 'Left only'], ['right', 'Right only']].map(([v, t]) => h('option', { value: v, selected: e.target === v }, t)))],
+    bothConnected() && h('p', { class: 'mut' }, 'Written to both wheels so they stay matched.'),
     h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !d || e.busy, onclick: editorWrite }, 'Write to wheel(s)')),
     e.msg && h('p', { class: e.msg.includes('FAILED') ? 'bad' : 'mut' }, e.msg));
 }

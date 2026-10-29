@@ -168,3 +168,22 @@ test('telemetry reads speed, push rim, charging from mock', async () => {
   assert.equal(t.bms.charging, true);
   assert.equal(t.battery, 61);
 });
+
+test('cruise speed is signed (reverse reads negative, not 65 km/h)', async () => {
+  const { parseCruiseValues } = await import('../src/packets.js');
+  const p = [0, 0, 0xff, 0x46, 80, 0, 0, 0, 0, 0, 1, 0];
+  assert.equal(parseCruiseValues(p).speedRaw, -186);
+  assert.equal(parseCruiseValues(p).speedKmh, -0.186);
+});
+
+test('drive() coalesces to the newest command while a write is slow', async () => {
+  const L = new MockWheel('L'); await L.connect();
+  const s = new WheelSession('left', L, { commandDelayMs: 0, timing: { edgePulseMs: 0, armSettleMs: 0, rearmMs: 0, readbackMs: 0 } });
+  await s.enterRemoteMode();
+  const origSend = L.send.bind(L);
+  L.send = async (x) => { await new Promise((r) => setTimeout(r, 30)); return origSend(x); };
+  const a = s.drive(100), b = s.drive(200), c = s.drive(300);
+  await Promise.all([a, b, c]);
+  assert.equal(L.speeds.at(-1), 300);
+  assert.ok(!L.speeds.includes(200));
+});

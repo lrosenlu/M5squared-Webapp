@@ -3,7 +3,8 @@ import { parseKeyInput } from './crypto.js';
 import { bluetoothSupported, bluetoothHelp, pickWheel, BLEWheelTransport } from './ble.js';
 import { WheelSession, MockWheel } from './session.js';
 import { WheelPair, DriveSupervisor, State, DriveMode, defaultMapperConfig, Mapper } from './drive.js';
-import { ASSIST_NAMES, PROFILES, SELECTABLE_PROFILES, selectableKmh, rawToKmh, PARAM, SVC, MAX_SPEED_MMPS } from './packets.js';
+import { ASSIST_NAMES, PROFILES, SELECTABLE_PROFILES, selectableKmh, rawToKmh, MAX_SPEED_MMPS, SPEED_RAW, STANDARD_TIER_MAX_RAW, validateProfileParams } from './packets.js';
+import { PRESETS, SLOPE_VALUES, SPEED_BIAS_VALUES } from './presets.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view');
@@ -48,6 +49,7 @@ const app = {
   wheelMode: 'dual',                      // 'dual' | 'left' | 'right'
   hillHold: false,
   probe: { side: 'left', text: '01 21', out: '' },
+  editor: { level: 0, draft: null, preset: 'Standard', target: 'both', msg: '', busy: false },
 };
 const BATT_WARN = 30, BATT_CRITICAL = 15, BATT_LOW_CAP = 20;
 const reconnecting = { left: false, right: false };
@@ -210,19 +212,23 @@ function onTelemetry() {
   const b = minBattery();
   app.sup?.setLowBattery(b != null && b < BATT_LOW_CAP);
   if (b != null && b < 10 && app.sup && (app.sup.state === State.ARMED || app.sup.state === State.DRIVING)) app.sup.emergencyStop('Battery critically low');
-  if (app.tab === 'status' && !SIDES.some((sd) => wheels[sd].busy)) render();
+  const ae = document.activeElement;
+  const editing = ae && view.contains(ae) && ['INPUT', 'SELECT'].includes(ae.tagName);
+  if (app.tab === 'status' && !editing && !app.editor.busy && !SIDES.some((sd) => wheels[sd].busy)) render();
   updateSpeedo();
 }
 setInterval(pollTelemetry, 1000);
 
-function speedOf(side) { const c = wheels[side].tele?.cruise; return connected(side) && c ? c.speedKmh : null; }
+// The wheel reports signed speed; the left wheel is mirrored, so negate it to make forward positive on both.
+function speedOf(side) { const c = wheels[side].tele?.cruise; return connected(side) && c ? (side === 'left' ? -c.speedKmh : c.speedKmh) : null; }
 function updateSpeedo() {
   const el = $('#speedo'); if (!el) return;
   const v = SIDES.map(speedOf).filter((x) => x != null);
   const avg = v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
+  const mag = Math.abs(avg);
   const max = MAX_SPEED_MMPS * 0.0036;
   $('#speedoNum').textContent = avg.toFixed(1);
-  $('#speedoArc').setAttribute('stroke-dasharray', `${Math.min(1, avg / max) * 157} 157`);
+  $('#speedoArc').setAttribute('stroke-dasharray', `${Math.min(1, mag / max) * 157} 157`);
   $('#speedoLR').textContent = SIDES.map((sd) => (sd === 'left' ? 'L ' : 'R ') + (speedOf(sd)?.toFixed(1) ?? '-')).join('   ');
 }
 function speedometer() {
@@ -301,6 +307,7 @@ function viewStatus() {
     bothConnected() && h('div', { class: 'card' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.sync, onchange: (e) => { app.sync = e.target.checked; store.set('sync', app.sync); render(); } }),
       h('span', {}, 'Keep both wheels in sync: assist level, max speed, profile and auto-hold changes go to both wheels at once.'))),
     ...SIDES.filter(connected).map(statusCard),
+    SIDES.some(connected) && paramsCard(),
     h('div', { class: 'card' },
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.allowHigh, onchange: async (e) => {
         if (e.target.checked && !(await confirmDialog('Allow speeds above 6 km/h?',
@@ -325,9 +332,9 @@ function statusCard(side) {
       ...kv('Battery', (w.tele?.battery ?? s.battery) != null ? (w.tele?.battery ?? s.battery) + ' %' + (w.tele?.bms?.charging ? ' (charging)' : '') : null), ...kv('Firmware', s.firmware?.text),
       ...kv('Assist level', ASSIST_NAMES[s.assistLevel]), ...kv('Profile', PROFILES[s.profile]),
       ...kv('Max speed', s.params ? s.params.maxSpeedKmh.toFixed(1) + ' km/h' : null),
-      ...kv('Charging', w.tele?.bms ? (w.tele.bms.charging ? 'yes' : 'no') : null),
+      ...kv('Charging', w.tele?.bms ? (w.tele.bms.charging ? 'yes' : 'no') : (w.session?.bmsSupported === false ? 'not reported' : null)),
       ...kv('Voltage', 'not reported by wheel'),
-      ...kv('Speed', c ? c.speedKmh.toFixed(2) + ' km/h' : null),
+      ...kv('Speed', speedOf(side) != null ? speedOf(side).toFixed(2) + ' km/h (+ forward)' : null),
       ...kv('Push rim sensor', c ? String(c.pushRim) : null),
       ...kv('Push count', c ? String(c.pushCount) : null),
       ...kv('Wheel error', c ? (c.wheelError ? 'code ' + c.wheelError : 'none') : null),
@@ -346,6 +353,81 @@ function statusCard(side) {
     h('label', { class: 'chk' }, h('input', { type: 'checkbox', disabled: locked, checked: !!s?.driveMode?.autoHold, onchange: (e) => apply(side, 'Writing...', (x) => x.writeAutoHold(e.target.checked)) }), h('span', {}, 'Auto-hold (brake on slopes)')),
     h('div', { class: 'row' }, h('button', { class: 'btn ghost', disabled: locked, onclick: () => refresh(side) }, 'Refresh')),
     w.busy && h('p', { class: 'mut' }, w.busy), w.error && h('p', { class: 'bad' }, w.error));
+}
+
+// ------------------------------------------------------------------ profile parameter editor
+const F = (a) => ({ maxTorque: a.max_torque, maxSpeedRaw: a.max_speed, pFactor: a.p_factor, speedBias: a.speed_bias,
+  speedFactor: a.speed_factor, rotationThreshold: a.rotation_threshold, slopeInc: a.slope_inc, slopeDec: a.slope_dec });
+const firstSide = () => SIDES.find(connected);
+
+async function editorRead() {
+  const sd = firstSide(); const e = app.editor; if (!sd) return;
+  e.busy = true; e.msg = 'Reading from the ' + sd + ' wheel...'; render();
+  const p = await wheels[sd].session.readProfileParams(e.level);
+  e.busy = false;
+  if (p) { e.draft = { maxTorque: p.maxTorque, maxSpeedRaw: p.maxSpeedRaw, pFactor: p.pFactor, speedBias: p.speedBias, speedFactor: p.speedFactor,
+    rotationThreshold: p.rotationThreshold, slopeInc: p.slopeInc, slopeDec: p.slopeDec }; e.msg = 'Loaded current values from the ' + sd + ' wheel.'; }
+  else e.msg = 'The wheel did not answer.';
+  render();
+}
+function editorPreset() {
+  const e = app.editor, pr = PRESETS[e.preset]; if (!pr) return;
+  e.draft = F(pr[e.level === 0 ? 'level_1' : 'level_2']);
+  e.msg = `Loaded ${e.preset}, ${ASSIST_NAMES[e.level]} level into the editor. Nothing is written until you press Write.`; render();
+}
+async function editorWrite() {
+  const e = app.editor; if (!e.draft) return;
+  if (driving()) { e.msg = 'Turn off remote drive first.'; return render(); }
+  const err = validateProfileParams(e.draft);
+  if (err) { e.msg = err; return render(); }
+  const targets = e.target === 'both' ? SIDES.filter(connected) : [e.target].filter(connected);
+  if (!targets.length) { e.msg = 'No connected wheel for that target.'; return render(); }
+  const clamped = !app.allowHigh && e.draft.maxSpeedRaw > STANDARD_TIER_MAX_RAW;
+  const d = e.draft;
+  if (!(await confirmDialog('Write drive parameters?',
+    `${targets.join(' and ')} wheel(s), ${ASSIST_NAMES[e.level]} level: torque ${d.maxTorque} %, max ${rawToKmh(d.maxSpeedRaw).toFixed(1)} km/h${clamped ? ' (will be limited to 6.0 unless you allow higher speeds)' : ''}, ` +
+    `P ${d.pFactor}, bias ${d.speedBias}, speed factor ${d.speedFactor}, rotation ${d.rotationThreshold}, slopes ${d.slopeInc}/${d.slopeDec}. These change how the wheelchair accelerates and brakes. The old values are logged in About.`, 'Write'))) return;
+  e.busy = true; e.msg = 'Writing...'; render();
+  const results = [];
+  for (const sd of targets) {
+    const r = await wheels[sd].session.writeProfileParamsVerified(e.level, d, { allowAboveStandardTier: app.allowHigh });
+    trace(`[PROFILE ${sd} level ${e.level}] before=${JSON.stringify(r.before)} after=${JSON.stringify(r.after)} ok=${r.ok} ${r.error || ''}`);
+    results.push(`${sd}: ${r.ok ? 'written and verified' : 'FAILED: ' + r.error}`);
+    wheels[sd].status = await wheels[sd].session.readStatus();
+  }
+  e.busy = false; e.msg = results.join('; '); render();
+}
+
+function paramsCard() {
+  const e = app.editor;
+  if (!e.draft) setTimeout(editorRead, 0);
+  const d = e.draft;
+  const num = (key, label, lo, hi) => [h('label', {}, `${label} (${lo}-${hi})`),
+    h('input', { type: 'number', inputmode: 'numeric', min: lo, max: hi, value: d?.[key] ?? '', disabled: !d || e.busy,
+      onchange: (ev) => { d[key] = parseInt(ev.target.value, 10); } })];
+  const pick = (key, label, opts, fmt = String) => [h('label', {}, label),
+    h('select', { disabled: !d || e.busy, onchange: (ev) => { d[key] = parseInt(ev.target.value, 10); } },
+      opts.map((o) => h('option', { value: o, selected: d?.[key] === o }, fmt(o))))];
+  return h('div', { class: 'card' }, h('h2', {}, 'Drive parameters (advanced)'),
+    h('p', { class: 'mut' }, 'Edits the motor-response values behind a drive profile. Wrong values can make the chair twitchy or slow to brake. Change one thing at a time, with the wheels lifted. Values are range-checked and read back from the wheel.'),
+    h('label', {}, 'Assist level to edit'),
+    h('div', { class: 'seg' }, [[0, 'Indoor'], [1, 'Outdoor']].map(([v, t]) => h('button', { class: e.level === v ? 'on' : '', disabled: e.busy, onclick: () => { e.level = v; e.draft = null; render(); } }, t))),
+    h('label', {}, 'Factory preset'),
+    h('select', { onchange: (ev) => { e.preset = ev.target.value; } }, Object.keys(PRESETS).map((n) => h('option', { value: n, selected: e.preset === n }, n === 'SensitivePlus' ? 'Sensitive+' : n))),
+    h('div', { class: 'row' }, h('button', { class: 'btn ghost', disabled: e.busy, onclick: editorPreset }, 'Load preset into editor'),
+      h('button', { class: 'btn ghost', disabled: e.busy, onclick: editorRead }, 'Read from wheel')),
+    ...num('maxTorque', 'Max torque %', 10, 100),
+    ...pick('maxSpeedRaw', 'Max speed', SPEED_RAW.filter((r) => app.allowHigh || r <= STANDARD_TIER_MAX_RAW), (r) => rawToKmh(r).toFixed(1) + ' km/h'),
+    ...num('pFactor', 'P-factor', 1, 999),
+    ...pick('speedBias', 'Speed bias (sensor sensitivity)', SPEED_BIAS_VALUES),
+    ...num('speedFactor', 'Speed factor', 1, 100),
+    ...num('rotationThreshold', 'Rotation threshold', 1, 150),
+    ...pick('slopeInc', 'Start-up slope (higher = quicker)', SLOPE_VALUES),
+    ...pick('slopeDec', 'Coasting slope (higher = quicker)', SLOPE_VALUES),
+    bothConnected() && [h('label', {}, 'Write to'), h('select', { onchange: (ev) => { e.target = ev.target.value; } },
+      [['both', 'Both wheels'], ['left', 'Left only'], ['right', 'Right only']].map(([v, t]) => h('option', { value: v, selected: e.target === v }, t)))],
+    h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !d || e.busy, onclick: editorWrite }, 'Write to wheel(s)')),
+    e.msg && h('p', { class: e.msg.includes('FAILED') ? 'bad' : 'mut' }, e.msg));
 }
 
 // ------------------------------------------------------------------ drive
@@ -389,6 +471,7 @@ function viewDrive() {
         app.hillHold = e.target.checked;
         await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(app.hillHold)));
       } }), h('span', {}, 'Hill hold (brake on slopes while driving remotely)'))));
+    out.push(h('p', { id: 'diag', class: 'mut' }, ''));
     out.push(h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' })));
     out.push(h('div', { class: 'bars' }, h('div', {}, h('div', { class: 'mut' }, 'Left ', h('span', { id: 'lv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'lb' }))),
       h('div', {}, h('div', { class: 'mut' }, 'Right ', h('span', { id: 'rv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'rb' })))));
@@ -433,6 +516,13 @@ async function disableDrive() {
   if (app.sup) { await app.sup.shutdown(); app.sup = null; }
   releaseWakeLock(); render();
 }
+
+function updateDiag() {
+  const el = $('#diag'); if (!el || !app.sup) return;
+  const parts = driveSides().map((sd) => { const x = wheels[sd].session; return `${sd[0].toUpperCase()}: ${x.driveWrites || 0} writes, ${x.skippedDrives || 0} coalesced, last ${x._lastDriveOk === false ? 'FAILED' : 'ok'}`; });
+  el.textContent = `${app.sup.state}${app.pad.held ? ' · finger down' : ''} · ${parts.join(' · ')}`;
+}
+setInterval(updateDiag, 500);
 
 function updateBars(f) {
   const set = (id, v) => { const b = $('#' + id + 'b'), t = $('#' + id + 'v'); if (!b) return; t.textContent = v;

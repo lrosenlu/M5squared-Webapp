@@ -8,3 +8,10 @@ code re-implements it and is distributed under the same license, GNU AGPL v3 (se
 
 `M25Kit/Sources/M25Kit/Generated.swift` is generated directly from the upstream Python sources.
 Not affiliated with or endorsed by Alber GmbH.
+
+## 6static/m25-remote
+
+The remote-drive path (mm/s speed units, arming handshake, drive-mode refresh, stop sequence, mapper behaviour and
+feel presets) is re-implemented from the behaviour of https://github.com/6static/m25-remote, the firmware proven on
+real wheels. That repository carries no licence file, so no code was copied; behaviour was ported and verified
+against a natively compiled copy of its mapper (test/fw_mapper_fuzz.test.mjs).

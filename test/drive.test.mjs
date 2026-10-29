@@ -133,5 +133,27 @@ test('session clamps remote speed to hard limit', async () => {
   const L = new MockWheel('L'); await L.connect();
   const s = new WheelSession('left', L, { commandDelayMs: 0 });
   await s.sendRemoteSpeed(9999); await s.sendRemoteSpeed(-9999);
-  assert.deepEqual(L.speeds, [250, -250]);
+  assert.deepEqual(L.speeds, [2361, -2361]);
+});
+
+test('percentToMmps follows firmware scale and clamps', async () => {
+  const { percentToMmps } = await import('../src/packets.js');
+  assert.equal(percentToMmps(100), 2361);
+  assert.equal(percentToMmps(10), 277);
+  assert.equal(percentToMmps(-10), -277);
+  assert.equal(percentToMmps(0), 0);
+});
+
+test('arming sets REMOTE and drive() refreshes mode, stop drops cruise', async () => {
+  const L = new MockWheel('L'); await L.connect();
+  let t = 0;
+  const s = new WheelSession('left', L, { commandDelayMs: 0, timing: { edgePulseMs: 0, armSettleMs: 0, rearmMs: 0, readbackMs: 0 }, now: () => t });
+  assert.equal(await s.enterRemoteMode(), true);
+  assert.ok(L.driveMode & 4);
+  t += 100;
+  assert.ok(await s.drive(500));
+  assert.equal(L.speeds.at(-1), 500);
+  assert.ok(await s.drive(0, true));
+  assert.equal(L.speeds.at(-1), 0);
+  assert.ok(L.driveMode & 4); assert.equal(L.driveMode & 2, 0);
 });

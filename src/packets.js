@@ -6,6 +6,16 @@
 
 export const PROTOCOL_ID = 0x01;
 export const DEV = { WHEEL_COMMON: 1, SMARTPHONE: 5 };
+/** Source id a wheel puts in its replies (m25_protocol_data SRC_ID_M25_WHEEL_*). Independent of the DuoDrive mounting setting. */
+export const WHEEL_SRC = { COMMON: 1, LEFT: 2, RIGHT: 3 };
+
+// Remote speed is a signed int16 in mm/s. The firmware (6static/m25-remote) maps joystick percent to mm/s with
+// 100 % = 10 km/h and never exceeds 2361 mm/s = 8.5 km/h, whatever the percent. The Python toolkit's own
+// "parking" speeds (80/150/250) are in the same unit.
+export const SPEED_SCALE = 27.7778;
+export const MAX_SPEED_MMPS = 2361;
+/** percent (-100..100) -> mm/s, truncating toward zero like the firmware's int16 cast, clamped to +-MAX_SPEED_MMPS. */
+export const percentToMmps = (pct) => Math.max(-MAX_SPEED_MMPS, Math.min(MAX_SPEED_MMPS, Math.trunc(pct * SPEED_SCALE)));
 export const SVC = { APP: 1, BATT: 8, VERSION: 10 };
 export const POS = { PROTOCOL: 0, TELEGRAM: 1, SOURCE: 2, DEST: 3, SERVICE: 4, PARAM: 5, PAYLOAD: 6, MIN: 6 };
 

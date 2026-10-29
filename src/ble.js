@@ -141,6 +141,7 @@ export class BLEWheelTransport {
     }
     this.rxBuf = new Uint8Array(0);
     this.trace?.(`[RX ${this.name}] ${toHexSpaced(spp)}`);
+    this.lastSource = spp[POS.SOURCE];
     for (const w of [...this.waiters]) {
       if (w.tid === spp[POS.TELEGRAM]) { this.waiters.delete(w); w.resolve(spp); }
     }

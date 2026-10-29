@@ -232,9 +232,9 @@ function statusCard(side) {
       ...kv('Max speed', s.params ? s.params.maxSpeedKmh.toFixed(1) + ' km/h' : null),
       ...kv('Distance', s.cruise ? s.cruise.distanceKm.toFixed(1) + ' km' : null),
       ...kv('Mounted', s.duo?.mounting), ...kv('Auto-hold', s.driveMode ? (s.driveMode.autoHold ? 'on' : 'off') : null)),
-    s && s.duo && s.duo.mounting !== 'Unknown' && s.duo.mounting.toLowerCase() !== side && h('p', { class: 'warn' }, `This wheel reports it is mounted on the ${s.duo.mounting.toLowerCase()}, but you connected it as ${side}. Swap sides before driving.`),
+    s && srcSide(s) && srcSide(s) !== side && h('p', { class: 'warn' }, `This wheel identifies itself as the ${srcSide(s)} wheel, but you connected it as ${side}. Swap sides before driving.`),
     h('label', {}, 'Assist level'),
-    h('div', { class: 'seg' }, [[0, 'Normal'], [1, 'Outdoor']].map(([v, t]) => h('button', { class: level === v ? 'on' : '', disabled: locked, onclick: () => apply(side, 'Writing...', (x) => x.writeAssistLevel(v)) }, t))),
+    h('div', { class: 'seg' }, [[0, 'Indoor'], [1, 'Outdoor'], [2, 'Learning']].map(([v, t]) => h('button', { class: level === v ? 'on' : '', disabled: locked, onclick: () => apply(side, 'Writing...', (x) => x.writeAssistLevel(v)) }, t))),
     h('label', {}, `Max speed (${ASSIST_NAMES[level] ?? ''} level)`),
     h('select', { disabled: locked || level > 1, onchange: (e) => apply(side, 'Writing...', (x) => x.writeMaxSpeed(level, parseFloat(e.target.value), app.allowHigh)) },
       speeds.map((k) => h('option', { value: k, selected: cur === k }, k.toFixed(1) + ' km/h'))),
@@ -247,8 +247,10 @@ function statusCard(side) {
 }
 
 // ------------------------------------------------------------------ drive
+// The wheel's own source id (2 left, 3 right) is reliable; the DuoDrive "mounting" byte is not, so it is informational only.
+function srcSide(st) { return st && st.src === 2 ? 'left' : st && st.src === 3 ? 'right' : null; }
 function mismatch() {
-  return SIDES.some((s) => { const m = wheels[s].status?.duo?.mounting; return m && m !== 'Unknown' && m.toLowerCase() !== s; });
+  return SIDES.some((s) => { const m = srcSide(wheels[s].status); return m && m !== s; });
 }
 
 function viewDrive() {
@@ -260,7 +262,7 @@ function viewDrive() {
     out.push(h('div', { class: 'card' },
       h('h2', {}, 'Remote drive'),
       h('p', { class: 'warn' }, 'Experimental. This moves a real wheelchair. Test with the wheels lifted off the ground first, with a helper present. Never use while seated in or near traffic, stairs, ramps or crowds.'),
-      mismatch() && h('p', { class: 'bad' }, 'A wheel reports the opposite mounting side. Fix the Left/Right assignment before driving.'),
+      mismatch() && h('p', { class: 'bad' }, 'A wheel identifies itself as the opposite side. Fix the Left/Right assignment before driving.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.driveAck, onchange: (e) => { app.driveAck = e.target.checked; render(); } }), h('span', {}, 'The wheels are lifted or the area is clear, and I accept responsibility for using this.')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.invertSteering, onchange: (e) => { app.invertSteering = e.target.checked; store.set('invertSteering', app.invertSteering); } }), h('span', {}, 'Invert steering (use if testing on blocks shows left/right reversed)')),
       h('button', { class: 'btn', disabled: !app.driveAck || mismatch() || st === State.CONNECTING, onclick: enableDrive }, st === State.CONNECTING ? 'Enabling...' : 'Enable remote drive')));

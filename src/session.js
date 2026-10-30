@@ -14,12 +14,16 @@ const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.
 
 /** Defence in depth: whatever the caller asks, remote speed (mm/s) is clamped here. 2361 mm/s = 8.5 km/h. */
 export const REMOTE_SPEED_HARD_LIMIT = MAX_SPEED_MMPS;
+export const CLASSIC_SPEED_LIMIT = 250;
 
 // Remote-mode handshake timing, from the firmware that drives real wheels (m25_ble.cpp _connectWheel).
 export const ARM_TIMING = { edgePulseMs: 45, armSettleMs: 80, rearmMs: 90, readbackMs: 180, attempts: 4, keepAliveMs: 80 };
 
 export class WheelSession {
-  constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000, timing = ARM_TIMING, now = () => Date.now() } = {}) {
+  constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000, timing = ARM_TIMING, now = () => Date.now(), engine = 'classic' } = {}) {
+    // 'classic': the arming/streaming that is proven on real wheels (raw speed units, <= 250). 'firmware': port of 6static/m25-remote (mm/s), experimental.
+    this.engine = engine;
+    this._txChain = Promise.resolve();
     this.timing = { ...ARM_TIMING, ...timing };
     this.now = now;
     this.driveBits = 0;        // last drive-mode byte we wrote (REMOTE/CRUISE/AUTO_HOLD bits)
@@ -37,12 +41,13 @@ export class WheelSession {
     return !!h && isAck(h);
   }
 
+  /** One request/reply at a time per wheel: interleaved exchanges (e.g. a telemetry poll during a settings write) can make a wheel drop one. */
   async _transact(packet) {
-    try {
-      return await this.transport.transact(packet, this.replyTimeoutMs);
-    } catch {
-      return null;
-    }
+    const run = this._txChain.then(async () => {
+      try { return await this.transport.transact(packet, this.replyTimeoutMs); } catch { return null; }
+    });
+    this._txChain = run.catch(() => {});
+    return run;
   }
 
   async _read(build, expected, parse) {
@@ -175,6 +180,13 @@ export class WheelSession {
    * settle, and only count success when a READ_DRIVE_MODE shows the REMOTE bit latched.
    */
   async enterRemoteMode() {
+    if (this.engine !== 'firmware') {
+      await this.initConnection(); await sleep(this.commandDelayMs);
+      for (const mask of [DRIVE_BIT.REMOTE | DRIVE_BIT.CRUISE, DRIVE_BIT.REMOTE]) {
+        if (await this._write(this.builder.writeDriveMode(mask))) { this.driveBits = mask; return true; }
+      }
+      return false;
+    }
     const T = this.timing;
     const bits = (m) => this.builder.writeDriveMode(m);
     for (let attempt = 1; attempt <= T.attempts; attempt++) {
@@ -206,7 +218,7 @@ export class WheelSession {
   }
 
   async _send(packet) {
-    try { await this.transport.send(packet); return true; } catch { return false; }
+    try { await this.transport.send(packet); return true; } catch (e) { this.lastError = e?.message || String(e); this.transport.trace?.(`[TX-FAIL ${this.side}] ${this.lastError}`); return false; }
   }
 
   async _remoteLatched() {
@@ -269,7 +281,8 @@ export class WheelSession {
 
   /** Fire-and-forget speed write, no mode handling (used for the safety stop bursts on exit). */
   async sendRemoteSpeed(speed) {
-    const s = Math.max(-REMOTE_SPEED_HARD_LIMIT, Math.min(REMOTE_SPEED_HARD_LIMIT, Math.trunc(speed)));
+    const lim = this.engine === 'firmware' ? REMOTE_SPEED_HARD_LIMIT : CLASSIC_SPEED_LIMIT;
+    const s = Math.max(-lim, Math.min(lim, Math.trunc(speed)));
     return this._send(this.builder.writeRemoteSpeed(s));
   }
 }

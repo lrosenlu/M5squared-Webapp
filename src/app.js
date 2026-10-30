@@ -47,6 +47,8 @@ const app = {
   driveMode: DriveMode.SLOW,
   invertSteering: store.get('invertSteering', false),
   useGamepad: false,
+  engine: store.get('engine', 'classic'),       // 'classic' = proven on real wheels; 'firmware' = m25-remote port (experimental)
+  liveSpeedWhileDriving: false,
   pad: { vx: 0, vy: 0, held: false },
   keyDraft: { left: '', right: '' },
   sync: true,                             // settings that must match are ALWAYS sent to both wheels when both are connected
@@ -93,7 +95,7 @@ async function connectReal(side, showAll = false) {
   try {
     await transport.connect();
     w.transport = transport;
-    w.session = new WheelSession(side, transport);
+    w.session = new WheelSession(side, transport, { engine: app.engine });
     if (app.remember) store.set('key.' + side, raw);
     w.busy = 'Reading status...'; render();
     w.status = await w.session.readStatus();
@@ -156,7 +158,7 @@ async function startDemo() {
     await m.connect();
     const w = wheels[side] = blank();
     w.demo = true; w.transport = m;
-    w.session = new WheelSession(side, m, { commandDelayMs: 0 });
+    w.session = new WheelSession(side, m, { commandDelayMs: 0, engine: app.engine });
     w.status = await w.session.readStatus();
   }
   render();
@@ -201,6 +203,8 @@ async function pollTelemetry() {
   for (const side of SIDES) {
     const w = wheels[side];
     if (!connected(side) || !w.session || polling[side] || w.busy || reconnecting[side]) continue;
+    // Like the firmware, leave the link alone while armed/driving unless live speed was asked for.
+    if (driving() && !app.liveSpeedWhileDriving) continue;
     polling[side] = true;
     w.session.readTelemetry({ bms: !driving() }).then((t) => {
       w.tele = { ...(w.tele || {}), ...t, bms: t.bms ?? w.tele?.bms };
@@ -343,7 +347,7 @@ function statusCard(side) {
       ...kv('Push count', c ? String(c.pushCount) : null),
       ...kv('Wheel error', c ? (c.wheelError ? 'code ' + c.wheelError : 'none') : null),
       ...kv('Distance', c ? c.distanceKm.toFixed(2) + ' km' : null),
-      ...kv('Mounting setting', s.duo?.mounting), ...kv('Auto-hold', s.driveMode ? (s.driveMode.autoHold ? 'on' : 'off') : null)),
+      ...kv('DuoDrive dial side', s.duo?.mounting), ...kv('Auto-hold', s.driveMode ? (s.driveMode.autoHold ? 'on' : 'off') : null)),
     s && srcSide(s) && srcSide(s) !== side && h('p', { class: 'warn' }, `This wheel identifies itself as the ${srcSide(s)} wheel, but you connected it as ${side}. Swap sides before driving.`),
     h('label', {}, 'Assist level'),
     h('div', { class: 'seg' }, [[0, 'Indoor'], [1, 'Outdoor'], [2, 'Learning']].map(([v, t]) => h('button', { class: level === v ? 'on' : '', disabled: locked, onclick: () => apply(side, 'Writing...', (x) => x.writeAssistLevel(v)) }, t))),
@@ -489,6 +493,10 @@ function viewDrive() {
       h('h2', {}, 'Remote drive'),
       h('p', { class: 'warn' }, 'Experimental. This moves a real wheelchair. Test with the wheels lifted off the ground first, with a helper present. Never use while seated in or near traffic, stairs, ramps or crowds.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.useGamepad, onchange: (e) => { app.useGamepad = e.target.checked; } }), h('span', {}, 'Use a game controller: left stick steers, hold any bumper or trigger to move (release = stop). Press a button once so the browser sees it.')),
+      h('label', {}, 'Drive engine'),
+      h('div', { class: 'seg' }, [['classic', 'Classic'], ['firmware', 'Firmware (experimental)']].map(([v, t]) => h('button', { class: app.engine === v ? 'on' : '', onclick: () => setEngine(v) }, t))),
+      h('p', { class: 'mut' }, app.engine === 'classic' ? 'Classic: the arming and speed commands that worked on your wheels. Speeds are very gentle.' : 'Firmware: port of the m25-remote firmware (real mm/s speeds, stricter arming). Not yet confirmed on your wheels; test lifted.'),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.liveSpeedWhileDriving, onchange: (e) => { app.liveSpeedWhileDriving = e.target.checked; } }), h('span', {}, 'Poll live speed while driving (the firmware avoids this)')),
       h('label', {}, 'Wheels to drive'), h('div', { class: 'seg' }, wheelModeButtons()),
       batteryNotice(),
       mismatch() && h('p', { class: 'bad' }, 'A wheel identifies itself as the opposite side. Fix the Left/Right assignment before driving.'),
@@ -521,6 +529,11 @@ function viewDrive() {
   return out;
 }
 
+function setEngine(v) {
+  app.engine = v; store.set('engine', v);
+  for (const sd of SIDES) if (wheels[sd].session) wheels[sd].session.engine = v;
+  render();
+}
 function wheelModeButtons() {
   return [['dual', 'Both'], ['left', 'Left only'], ['right', 'Right only']].map(([m, t]) =>
     h('button', { class: app.wheelMode === m ? 'on' : '', disabled: driving(), onclick: () => { app.wheelMode = m; render(); } }, t));
@@ -540,9 +553,10 @@ async function enableDrive() {
   if (!(await confirmDialog('Enable remote drive?', 'Both wheels will switch into remote-control mode and respond to the on-screen joystick. Release the pad or press EMERGENCY STOP to stop.', 'Enable'))) return;
   const mapper = new Mapper({ ...defaultMapperConfig(), invertSteering: app.invertSteering });
   const link = new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode);
-  const sup = app.sup = new DriveSupervisor(link, { mapper });
+  const sup = app.sup = new DriveSupervisor(link, { mapper, loopInterval: app.engine === 'firmware' ? 0.05 : 0.1 });
   sup.onStateChange = () => { render(); if (sup.state === State.DISCONNECTED || sup.state === State.FAILSAFE) releaseWakeLock(); };
   sup.onCommand = updateBars;
+  sup.onFailsafe = (why) => trace(`[FAILSAFE] ${why}`);
   sup.setLowBattery((minBattery() ?? 100) < BATT_LOW_CAP);
   render();
   const ok = await sup.connect();
@@ -609,7 +623,7 @@ setInterval(() => {
 const bail = (why) => { if (app.sup && (app.sup.state === State.ARMED || app.sup.state === State.DRIVING)) app.sup.emergencyStop(why); app.pad = { vx: 0, vy: 0, held: false }; };
 document.addEventListener('visibilitychange', () => { if (document.hidden) bail('App went to background'); });
 window.addEventListener('pagehide', () => bail('Page closed'));
-window.addEventListener('blur', () => bail('App lost focus'));
+window.addEventListener('blur', () => setTimeout(() => { if (document.hidden || !document.hasFocus()) bail('App lost focus'); }, 300));
 
 let wakeLock = null;
 async function acquireWakeLock() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* optional */ } }

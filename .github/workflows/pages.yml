@@ -29,7 +29,7 @@ jobs:
       - uses: actions/configure-pages@v5
       - run: |
           mkdir _site
-          cp -r index.html style.css manifest.webmanifest sw.js icons src LICENSE NOTICE.md _site/
+          cp -r index.html style.css manifest.webmanifest sw.js icons src vendor LICENSE NOTICE.md _site/
       - uses: actions/upload-pages-artifact@v3
         with: { path: _site }
       - id: deployment

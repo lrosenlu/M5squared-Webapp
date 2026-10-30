@@ -2,7 +2,7 @@
 import { parseKeyInput } from './crypto.js';
 import { bluetoothSupported, bluetoothHelp, pickWheel, BLEWheelTransport } from './ble.js';
 import { WheelSession, MockWheel } from './session.js';
-import { WheelPair, DriveSupervisor, State, DriveMode, defaultMapperConfig, Mapper } from './drive.js';
+import { WheelPair, CoreLink, DriveSupervisor, State, DriveMode, defaultMapperConfig, Mapper } from './drive.js';
 import { ASSIST_NAMES, PROFILES, SELECTABLE_PROFILES, selectableKmh, rawToKmh, MAX_SPEED_MMPS, SPEED_RAW, STANDARD_TIER_MAX_RAW, validateProfileParams } from './packets.js';
 import { PRESETS, SLOPE_VALUES, SPEED_BIAS_VALUES } from './presets.js';
 import { processAnalyze, parseHex } from './analyzer.js';
@@ -494,8 +494,8 @@ function viewDrive() {
       h('p', { class: 'warn' }, 'Experimental. This moves a real wheelchair. Test with the wheels lifted off the ground first, with a helper present. Never use while seated in or near traffic, stairs, ramps or crowds.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.useGamepad, onchange: (e) => { app.useGamepad = e.target.checked; } }), h('span', {}, 'Use a game controller: left stick steers, hold any bumper or trigger to move (release = stop). Press a button once so the browser sees it.')),
       h('label', {}, 'Drive engine'),
-      h('div', { class: 'seg' }, [['classic', 'Classic'], ['firmware', 'Firmware (experimental)']].map(([v, t]) => h('button', { class: app.engine === v ? 'on' : '', onclick: () => setEngine(v) }, t))),
-      h('p', { class: 'mut' }, app.engine === 'classic' ? 'Classic: the arming and speed commands that worked on your wheels. Speeds are very gentle.' : 'Firmware: port of the m25-remote firmware (real mm/s speeds, stricter arming). Not yet confirmed on your wheels; test lifted.'),
+      h('div', { class: 'seg' }, [['classic', 'Classic'], ['core', 'Upstream core'], ['firmware', 'Firmware (experimental)']].map(([v, t]) => h('button', { class: app.engine === v ? 'on' : '', onclick: () => setEngine(v) }, t))),
+      h('p', { class: 'mut' }, app.engine === 'classic' ? 'Classic: the arming and speed commands that worked on your wheels. Speeds are very gentle.' : app.engine === 'core' ? 'Upstream core: exactly what the m5squared remote sends (no replies awaited, remote-only mode). Same gentle speeds.' : 'Firmware: port of the m25-remote firmware (real mm/s speeds, stricter arming). Not yet confirmed on your wheels; test lifted.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.liveSpeedWhileDriving, onchange: (e) => { app.liveSpeedWhileDriving = e.target.checked; } }), h('span', {}, 'Poll live speed while driving (the firmware avoids this)')),
       h('label', {}, 'Wheels to drive'), h('div', { class: 'seg' }, wheelModeButtons()),
       batteryNotice(),
@@ -552,7 +552,7 @@ async function enableDrive() {
   if (batteryLocked()) return;
   if (!(await confirmDialog('Enable remote drive?', 'Both wheels will switch into remote-control mode and respond to the on-screen joystick. Release the pad or press EMERGENCY STOP to stop.', 'Enable'))) return;
   const mapper = new Mapper({ ...defaultMapperConfig(), invertSteering: app.invertSteering });
-  const link = new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode);
+  const link = app.engine === 'core' && app.wheelMode === 'dual' ? new CoreLink(wheels.left.session, wheels.right.session) : new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode);
   const sup = app.sup = new DriveSupervisor(link, { mapper, loopInterval: app.engine === 'firmware' ? 0.05 : 0.1 });
   sup.onStateChange = () => { render(); if (sup.state === State.DISCONNECTED || sup.state === State.FAILSAFE) releaseWakeLock(); };
   sup.onCommand = updateBars;

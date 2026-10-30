@@ -180,6 +180,7 @@ export class WheelSession {
    * settle, and only count success when a READ_DRIVE_MODE shows the REMOTE bit latched.
    */
   async enterRemoteMode() {
+    this._quiet = false;
     if (this.engine !== 'firmware') {
       await this.initConnection(); await sleep(this.commandDelayMs);
       for (const mask of [DRIVE_BIT.REMOTE | DRIVE_BIT.CRUISE, DRIVE_BIT.REMOTE]) {
@@ -249,6 +250,7 @@ export class WheelSession {
    * every keepAliveMs), then write the speed. A stop writes speed 0 first, then drops CRUISE but stays in REMOTE.
    */
   async drive(mmps, isStop = false) {
+    if (this._quiet) return true; // releasing: nothing may re-assert REMOTE after the exit write
     // Like the firmware's motor queue (depth 1, newest wins): never queue behind a slow write, just remember the latest.
     if (this._driveBusy) { this._pendingDrive = [mmps, isStop]; this.skippedDrives = (this.skippedDrives || 0) + 1; return this._lastDriveOk !== false; }
     this._driveBusy = true;
@@ -260,7 +262,18 @@ export class WheelSession {
     } finally { this._driveBusy = false; }
   }
 
+  /**
+   * Stop all drive-path writes (including a queued/coalesced one and the 80 ms REMOTE refresh) and wait for the one in
+   * flight to finish. Called before the exit sequence: otherwise a late refresh writes REMOTE again after "mode 0".
+   */
+  async quiesce(maxWaitMs = 1500) {
+    this._quiet = true; this._pendingDrive = null;
+    const t0 = Date.now();
+    while (this._driveBusy && Date.now() - t0 < maxWaitMs) await sleep(10);
+  }
+
   async _driveNow(mmps, isStop = false) {
+    if (this._quiet) return true;
     const speed = Math.max(-REMOTE_SPEED_HARD_LIMIT, Math.min(REMOTE_SPEED_HARD_LIMIT, Math.trunc(mmps)));
     if (isStop || speed === 0) {
       const sent = await this._send(this.builder.writeRemoteSpeed(0));

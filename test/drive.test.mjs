@@ -226,3 +226,17 @@ test('releaseNow (tab close) issues stop + drive-mode-0 writes synchronously', a
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(L.driveMode & 4, 0); assert.equal(R.driveMode & 4, 0);
 });
+
+test('releaseControl: a late/queued drive write cannot re-assert REMOTE after the exit (firmware engine)', async () => {
+  const c = clock(); const L = new MockWheel('L'), R = new MockWheel('R'); await L.connect(); await R.connect();
+  const o = { retries: 0, commandDelayMs: 0, replyTimeoutMs: 100, engine: 'firmware' };
+  const sl = new WheelSession('left', L, o), sr = new WheelSession('right', R, o);
+  const sup = new DriveSupervisor(new WheelPair(sl, sr, 'dual', 1), { now: c.now });
+  await sup.connect(); sup.arm();
+  sl._driveBusy = true; sl._pendingDrive = [800, false]; // simulate a write in flight with a newer one queued
+  setTimeout(() => { sl._driveBusy = false; }, 30);
+  assert.ok(await sup.releaseControl());
+  await sl.drive(800); await sr.drive(800);              // anything arriving afterwards is ignored
+  assert.equal(L.driveMode & 4, 0); assert.equal(R.driveMode & 4, 0);
+  assert.equal(L.speeds.at(-1), 0);
+});

@@ -275,6 +275,7 @@ export class DriveSupervisor {
     this.input = { vx: 0, vy: 0, deadman: false, mode: this.input.mode };
     this.mapper.reset();
     const wheels = this.link.active ?? [];
+    await Promise.all(wheels.map((w) => w.quiesce?.()));
     let released = false;
     for (let i = 0; i < attempts && !released; i++) {
       try { await this.link.exitRemoteMode(); } catch { /* keep trying */ }
@@ -298,6 +299,7 @@ export class DriveSupervisor {
   releaseNow() {
     this.stopLoop();
     for (const w of this.link.active ?? []) {
+      w._quiet = true; w._pendingDrive = null;
       for (let i = 0; i < 2; i++) {
         w._send(w.builder.writeRemoteSpeed(0)).catch(() => {});
         w._send(w.builder.writeDriveMode(0)).catch(() => {});

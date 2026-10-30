@@ -132,8 +132,10 @@ export class WheelPair {
   async send(frame) {
     const isStop = frame.left === 0 && frame.right === 0;
     const jobs = [];
-    if (this.mode !== 'right' && this.left) jobs.push(this.left.drive(-percentToMmps(frame.left), isStop));
-    if (this.mode !== 'left' && this.right) jobs.push(this.right.drive(percentToMmps(frame.right), isStop));
+    // 'classic' engine: percent goes out as the raw speed value (what worked on real wheels). 'firmware': percent -> mm/s.
+    const go = (w, pct) => (w.engine === 'firmware' ? w.drive(percentToMmps(pct), isStop) : w.sendRemoteSpeed(pct));
+    if (this.mode !== 'right' && this.left) jobs.push(go(this.left, -frame.left));
+    if (this.mode !== 'left' && this.right) jobs.push(go(this.right, frame.right));
     const r = await Promise.all(jobs);
     return r.every(Boolean);
   }
@@ -212,6 +214,7 @@ export class DriveSupervisor {
   emergencyStop(reason = 'Emergency stop') {
     if (this.state === State.DISCONNECTED || this.state === State.FAILSAFE) return;
     this.failsafeReason = reason;
+    this.onFailsafe?.(reason);
     this.input = { vx: 0, vy: 0, deadman: false, mode: this.input.mode };
     this.mapper.reset();
     this.state = State.FAILSAFE;
@@ -289,6 +292,7 @@ export class DriveSupervisor {
   async _failsafe(reason) {
     if (this.state === State.FAILSAFE) return;
     this.failsafeReason = reason;
+    this.onFailsafe?.(reason);
     this.input = { vx: 0, vy: 0, deadman: false, mode: this.input.mode };
     this.mapper.reset();
     this.state = State.FAILSAFE;

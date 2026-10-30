@@ -133,7 +133,11 @@ test('session clamps remote speed to hard limit', async () => {
   const L = new MockWheel('L'); await L.connect();
   const s = new WheelSession('left', L, { commandDelayMs: 0 });
   await s.sendRemoteSpeed(9999); await s.sendRemoteSpeed(-9999);
-  assert.deepEqual(L.speeds, [2361, -2361]);
+  assert.deepEqual(L.speeds, [250, -250]); // classic engine
+  const L2 = new MockWheel('L2'); await L2.connect();
+  const s2 = new WheelSession('left', L2, { commandDelayMs: 0, engine: 'firmware' });
+  await s2.sendRemoteSpeed(9999); await s2.sendRemoteSpeed(-9999);
+  assert.deepEqual(L2.speeds, [2361, -2361]);
 });
 
 test('percentToMmps follows firmware scale and clamps', async () => {
@@ -147,7 +151,7 @@ test('percentToMmps follows firmware scale and clamps', async () => {
 test('arming sets REMOTE and drive() refreshes mode, stop drops cruise', async () => {
   const L = new MockWheel('L'); await L.connect();
   let t = 0;
-  const s = new WheelSession('left', L, { commandDelayMs: 0, timing: { edgePulseMs: 0, armSettleMs: 0, rearmMs: 0, readbackMs: 0 }, now: () => t });
+  const s = new WheelSession('left', L, { commandDelayMs: 0, engine: 'firmware', timing: { edgePulseMs: 0, armSettleMs: 0, rearmMs: 0, readbackMs: 0 }, now: () => t });
   assert.equal(await s.enterRemoteMode(), true);
   assert.ok(L.driveMode & 4);
   t += 100;
@@ -178,7 +182,7 @@ test('cruise speed is signed (reverse reads negative, not 65 km/h)', async () =>
 
 test('drive() coalesces to the newest command while a write is slow', async () => {
   const L = new MockWheel('L'); await L.connect();
-  const s = new WheelSession('left', L, { commandDelayMs: 0, timing: { edgePulseMs: 0, armSettleMs: 0, rearmMs: 0, readbackMs: 0 } });
+  const s = new WheelSession('left', L, { commandDelayMs: 0, engine: 'firmware', timing: { edgePulseMs: 0, armSettleMs: 0, rearmMs: 0, readbackMs: 0 } });
   await s.enterRemoteMode();
   const origSend = L.send.bind(L);
   L.send = async (x) => { await new Promise((r) => setTimeout(r, 30)); return origSend(x); };

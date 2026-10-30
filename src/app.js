@@ -520,6 +520,7 @@ function viewDrive() {
       } }), h('span', {}, 'Hill hold (brake on slopes while driving remotely)'))));
     out.push(h('p', { id: 'diag', class: 'mut' }, ''));
     out.push(h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' })));
+    out.push(h('p', { id: 'padHint', class: 'warn' }, ''));
     out.push(h('div', { class: 'bars' }, h('div', {}, h('div', { class: 'mut' }, 'Left ', h('span', { id: 'lv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'lb' }))),
       h('div', {}, h('div', { class: 'mut' }, 'Right ', h('span', { id: 'rv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'rb' })))));
   }
@@ -573,7 +574,7 @@ async function disableDrive() {
 function updateDiag() {
   const el = $('#diag'); if (!el || !app.sup) return;
   const parts = driveSides().map((sd) => { const x = wheels[sd].session; return `${sd[0].toUpperCase()}: ${x.driveWrites || 0} writes, ${x.skippedDrives || 0} coalesced, last ${x._lastDriveOk === false ? 'FAILED' : 'ok'}`; });
-  el.textContent = `${app.sup.state}${app.pad.held ? ' · finger down' : ''} · ${parts.join(' · ')}`;
+  el.textContent = `${app.sup.state}${app.pad.held ? ` · finger down (x ${app.pad.vy.toFixed(2)}, y ${app.pad.vx.toFixed(2)})` : ''} · ${parts.join(' · ')}`;
 }
 setInterval(updateDiag, 500);
 
@@ -586,22 +587,24 @@ function updateBars(f) {
 // joystick: pointer capture, finger-down == deadman
 function attachPad() {
   const pad = $('#pad'), knob = $('#knob');
-  const reset = () => { app.pad = { vx: 0, vy: 0, held: false }; knob.style.left = '33%'; knob.style.top = '33%'; push(); };
+  const isLive = () => app.sup?.state === State.ARMED || app.sup?.state === State.DRIVING;
+  const hint = (t) => { const el = $('#padHint'); if (el) el.textContent = t; };
+  const push = () => app.sup?.setInput(isLive() ? app.pad.vx : 0, isLive() ? app.pad.vy : 0, app.pad.held && isLive(), app.driveMode);
+  const reset = () => { app.pad = { vx: 0, vy: 0, held: false }; knob.style.left = '33%'; knob.style.top = '33%'; push(); hint(''); };
   const move = (e) => {
     const r = pad.getBoundingClientRect(), R = r.width / 2;
     let dx = (e.clientX - (r.left + R)) / R, dy = (e.clientY - (r.top + R)) / R;
     const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
     app.pad.vx = -dy; app.pad.vy = dx;
     knob.style.left = (33 + dx * 33) + '%'; knob.style.top = (33 + dy * 33) + '%';
+    hint(isLive() ? '' : `Not armed (${app.sup?.state ?? 'off'}): the wheels will not move. Press Arm first.`);
     push();
   };
-  const push = () => app.sup?.setInput(app.pad.vx, app.pad.vy, app.pad.held, app.driveMode);
-  pad.addEventListener('pointerdown', (e) => {
-    if (app.sup?.state !== State.ARMED && app.sup?.state !== State.DRIVING) return;
-    pad.setPointerCapture(e.pointerId); app.pad.held = true; move(e); e.preventDefault();
-  });
+  // The knob always follows the finger so you can see the touch registered; the wheels only get input while armed.
+  pad.addEventListener('pointerdown', (e) => { try { pad.setPointerCapture(e.pointerId); } catch { /* optional */ } app.pad.held = true; move(e); e.preventDefault(); });
   pad.addEventListener('pointermove', (e) => { if (app.pad.held) move(e); });
-  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) pad.addEventListener(ev, () => { if (app.pad.held) reset(); else push(); });
+  for (const ev of ['pointerup', 'pointercancel']) pad.addEventListener(ev, () => { if (app.pad.held) reset(); });
+  pad.addEventListener('lostpointercapture', () => { if (app.pad.held) reset(); });
   pad.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 

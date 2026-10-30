@@ -32,7 +32,7 @@ button{font:inherit}
 .seg button:last-child{border-right:0}.seg button.on{background:var(--acc);color:#04251c;font-weight:700}
 .seg button:disabled{opacity:.5}
 #pad{position:relative;width:min(78vw,300px);aspect-ratio:1;margin:12px auto;border-radius:50%;background:var(--card2);border:2px solid var(--line);touch-action:none;user-select:none;-webkit-user-select:none}
-#pad.armed{border-color:var(--acc)}#pad.off{opacity:.45}
+#pad.armed{border-color:var(--acc)}#pad.off{opacity:.7}
 #knob{position:absolute;width:34%;aspect-ratio:1;border-radius:50%;background:var(--acc);left:33%;top:33%;opacity:.9;pointer-events:none}
 #estop{width:100%;padding:18px;font-size:20px;font-weight:800;border-radius:var(--r);border:0;background:var(--bad);color:#fff;letter-spacing:.5px}
 .bars{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0}

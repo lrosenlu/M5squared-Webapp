@@ -149,6 +149,31 @@ export class WheelPair {
   }
 }
 
+/**
+ * Port of upstream core/transport/bluetooth.py BluetoothTransport (the path m5squared's own supervisor uses):
+ * fire-and-forget init, REMOTE-only drive mode, speeds as-is with the left wheel negated, a single stop on exit.
+ * Verified byte for byte against the real class driving upstream's mock wheel (test/emulator.test.mjs).
+ */
+export class CoreLink {
+  constructor(left, right) { this.left = left; this.right = right; }
+  get isConnected() { return !!(this.left.transport.isConnected && this.right.transport.isConnected); }
+  async enterRemoteMode() {
+    const L = this.left, R = this.right;
+    await L._send(L.builder.writeSystemMode(1)); await R._send(R.builder.writeSystemMode(1));
+    await L._send(L.builder.writeDriveMode(0x04)); await R._send(R.builder.writeDriveMode(0x04));
+    return true;
+  }
+  async send(frame) {
+    const a = await this.left.sendRemoteSpeed(-frame.left);
+    const b = await this.right.sendRemoteSpeed(frame.right);
+    return a && b;
+  }
+  async exitRemoteMode() {
+    await this.send({ left: 0, right: 0 });
+    await this.left._send(this.left.builder.writeDriveMode(0x00)); await this.right._send(this.right.builder.writeDriveMode(0x00));
+  }
+}
+
 export class DriveSupervisor {
   constructor(link, { mapper, loopInterval = 0.05, inputTimeout = 0.5, linkTimeout = 2.0, armIdleTimeout = 60, now = () => Date.now() / 1000 } = {}) {
     this.link = link;

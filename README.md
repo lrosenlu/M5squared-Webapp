@@ -124,7 +124,18 @@ Each row compares this app's output with the real Python scripts on generated in
 | m25_analyzer | parse, warnings, text/JSON/one-line output, 1,000 packets | tools |
 | m25_decrypt, m25_encrypt | stdout and diagnostics for good, corrupt, truncated, wrong-key packets, both scopes, multi-key | tools |
 | m25_utils.parse_hex | accepted inputs and Python's exact error text | tools |
+| upstream `ECSRemote` + `MockWheelSimulator` (the real emulator) | every encrypted request and response, plus the emulator's final state, for status reads, assist level, auto-hold, remote on/speed/off on a left and a right wheel (fixed IVs) | emulator |
+| upstream core `BluetoothTransport` (what the m5squared remote/supervisor sends) | connect, frames, disconnect against the emulator, byte for byte | emulator |
 | ECSRemote.format_wheel_status | status report text, 1,500 payload sets | report |
 | m25_ecs_driveprofiles | factory presets and limits | presets |
 
 Known deliberate differences: speed in CRUISE_VALUES is decoded signed (real wheels send reverse as a negative number; upstream documents it as unsigned), and the BMS charging read is experimental because no upstream script uses it.
+
+### Emulator parity
+
+`tools/gen_emulator_ref.py` runs the scenarios through upstream's own Python (`ECSRemote`, and `core.transport.bluetooth.BluetoothTransport`)
+against upstream's `MockWheelSimulator` with deterministic IVs and records every exchange (`test/emulator_ref.json`).
+`test/emulator.test.mjs` replays the same scenarios through this app's code. With the upstream checkout present
+(`M5SQ_UPSTREAM`, default `/home/claude/6static/m5squared`) it also talks to the live emulator through `tools/emulator_bridge.py`; otherwise it
+checks against the recording. The firmware ("m25-remote") engine is not covered by this: it deliberately differs from upstream's Python
+(mm/s speeds, verified arming), and is checked against the firmware's own mapper instead.

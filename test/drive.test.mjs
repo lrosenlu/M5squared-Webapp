@@ -191,3 +191,13 @@ test('drive() coalesces to the newest command while a write is slow', async () =
   assert.equal(L.speeds.at(-1), 300);
   assert.ok(!L.speeds.includes(200));
 });
+
+test('classic WheelPair scale maps Slow/Normal/Fast (30/60/100 %) to upstream demo speeds 75/150/250', async () => {
+  const L = new MockWheel('L'); const R = new MockWheel('R'); await L.connect(); await R.connect();
+  const o = { commandDelayMs: 0 };
+  const pair = new WheelPair(new WheelSession('left', L, o), new WheelSession('right', R, o), 'dual', 2.5);
+  for (const p of [30, 60, 100]) await pair.send({ left: p, right: p });
+  assert.deepEqual(R.speeds, [75, 150, 250]);
+  assert.deepEqual(L.speeds, [-75, -150, -250]);
+  assert.deepEqual(pair.lastRaw, { left: -250, right: 250 });
+});

@@ -553,7 +553,11 @@ async function enableDrive() {
   if (batteryLocked()) return;
   if (!(await confirmDialog('Enable remote drive?', 'Both wheels will switch into remote-control mode and respond to the on-screen joystick. Release the pad or press EMERGENCY STOP to stop.', 'Enable'))) return;
   const mapper = new Mapper({ ...defaultMapperConfig(), invertSteering: app.invertSteering });
-  const link = app.engine === 'core' && app.wheelMode === 'dual' ? new CoreLink(wheels.left.session, wheels.right.session) : new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode);
+  // Classic/core send percent as the raw speed value, which is far below what moves a chair (upstream's own demo speeds are 80/150/250).
+  // Scale 2.5 maps the Slow/Normal/Fast presets (30/60/100 %) to 75/150/250, matching those.
+  const scale = 2.5;
+  const link = app.engine === 'core' && app.wheelMode === 'dual' ? new CoreLink(wheels.left.session, wheels.right.session, scale) : new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode, scale);
+  app.link = link;
   const sup = app.sup = new DriveSupervisor(link, { mapper, loopInterval: app.engine === 'firmware' ? 0.05 : 0.1 });
   sup.onStateChange = () => { render(); if (sup.state === State.DISCONNECTED || sup.state === State.FAILSAFE) releaseWakeLock(); };
   sup.onCommand = updateBars;
@@ -562,8 +566,17 @@ async function enableDrive() {
   render();
   const ok = await sup.connect();
   if (!ok) { app.sup = null; wheels.left.error = wheels.right.error = ''; alert('Could not switch both wheels into remote mode. Nothing is moving.'); }
-  else { sup.startLoop(); if (app.hillHold) await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(true))); }
+  else { await reportArm(); sup.startLoop(); if (app.hillHold) await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(true))); }
   render();
+}
+
+async function reportArm() {
+  for (const sd of driveSides()) {
+    const dm = await wheels[sd].session._read(() => wheels[sd].session.builder.readDriveMode(), 0x22, (p) => (p.length ? p[0] : null)).catch(() => null);
+    trace(`[ARM] ${sd} drive mode readback: ${dm == null ? 'no reply' : '0x' + dm.toString(16).padStart(2, '0') + (dm & 4 ? ' (remote on)' : ' (REMOTE NOT SET)')}`);
+    if (dm != null && !(dm & 4)) wheels[sd].error = 'This wheel did not stay in remote mode after arming.';
+    app.armInfo = { ...(app.armInfo || {}), [sd]: dm };
+  }
 }
 
 async function disableDrive() {
@@ -574,7 +587,9 @@ async function disableDrive() {
 function updateDiag() {
   const el = $('#diag'); if (!el || !app.sup) return;
   const parts = driveSides().map((sd) => { const x = wheels[sd].session; return `${sd[0].toUpperCase()}: ${x.driveWrites || 0} writes, ${x.skippedDrives || 0} coalesced, last ${x._lastDriveOk === false ? 'FAILED' : 'ok'}`; });
-  el.textContent = `${app.sup.state}${app.pad.held ? ` · finger down (x ${app.pad.vy.toFixed(2)}, y ${app.pad.vx.toFixed(2)})` : ''} · ${parts.join(' · ')}`;
+  const raw = app.link?.lastRaw ? ` · last raw L ${app.link.lastRaw.left} / R ${app.link.lastRaw.right}` : '';
+  const dm = app.armInfo ? ` · mode ${Object.entries(app.armInfo).map(([k, v]) => k[0].toUpperCase() + ':' + (v == null ? '?' : '0x' + v.toString(16))).join(' ')}` : '';
+  el.textContent = `${app.sup.state}${app.pad.held ? ` · finger down (x ${app.pad.vy.toFixed(2)}, y ${app.pad.vx.toFixed(2)})` : ''} · ${parts.join(' · ')}${raw}${dm}`;
 }
 setInterval(updateDiag, 500);
 

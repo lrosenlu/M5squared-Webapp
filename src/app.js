@@ -177,7 +177,10 @@ async function applyOne(side, label, fn) {
   const w = wheels[side]; if (!w.session) return;
   w.busy = label; w.error = ''; render();
   let ok = false;
-  try { ok = await fn(w.session); } catch (e) { w.error = e.message || String(e); }
+  // Never leave the card on "Writing..." forever: give up after 25 s and say so.
+  let timer;
+  const guard = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('The wheel stopped responding while writing. Disconnect, wait 10 s, reconnect.')), 25000); });
+  try { ok = await Promise.race([fn(w.session), guard]); } catch (e) { w.error = e.message || String(e); } finally { clearTimeout(timer); }
   if (!ok && !w.error) w.error = 'The wheel did not accept that change.';
   w.status = await w.session.readStatus();
   w.busy = ''; render();

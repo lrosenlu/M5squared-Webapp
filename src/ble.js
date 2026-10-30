@@ -148,8 +148,14 @@ export class BLEWheelTransport {
   }
 
   // ---- send: serialize GATT operations, chunk to 20 bytes
-  _enqueue(fn) {
-    const run = this.queue.then(fn, fn);
+  // A GATT write that never settles (stalled stack, wheel asleep) would block every later write behind it forever.
+  // Bound each queued operation; the late result, if any, is ignored.
+  _enqueue(fn, limitMs = 4000) {
+    const bounded = () => new Promise((resolve, reject) => {
+      const t = setTimeout(() => { this.trace?.(`[GATT-TIMEOUT ${this.name}] write did not complete in ${limitMs} ms`); reject(new Error('Bluetooth write timed out')); }, limitMs);
+      Promise.resolve().then(fn).then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+    });
+    const run = this.queue.then(bounded, bounded);
     this.queue = run.catch(() => {});
     return run;
   }

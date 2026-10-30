@@ -524,7 +524,7 @@ function viewDrive() {
     out.push(h('div', { class: 'bars' }, h('div', {}, h('div', { class: 'mut' }, 'Left ', h('span', { id: 'lv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'lb' }))),
       h('div', {}, h('div', { class: 'mut' }, 'Right ', h('span', { id: 'rv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'rb' })))));
   }
-  setTimeout(updateSpeedo, 0);
+  setTimeout(() => { updateSpeedo(); updateDiag(); }, 0);
   out.push(h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'));
   if (st === State.FAILSAFE) out.push(h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => { await sup.reset(); render(); } }, 'Reset')));
   return out;

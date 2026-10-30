@@ -177,14 +177,25 @@ async function applyOne(side, label, fn) {
   const w = wheels[side]; if (!w.session) return;
   w.busy = label; w.error = ''; render();
   let ok = false;
-  // Never leave the card on "Writing..." forever: give up after 25 s and say so.
+  // Never leave the card on "Writing..." forever: give up after 15 s and say so.
   let timer;
-  const guard = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('The wheel stopped responding while writing. Disconnect, wait 10 s, reconnect.')), 25000); });
+  const guard = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('The wheel stopped responding while writing. Disconnect, wait 10 s, reconnect.')), 15000); });
   try { ok = await Promise.race([fn(w.session), guard]); } catch (e) { w.error = e.message || String(e); } finally { clearTimeout(timer); }
   if (!ok && !w.error) w.error = 'The wheel did not accept that change.';
-  w.status = await w.session.readStatus();
-  w.busy = ''; render();
+  w.busy = ''; render();   // the write itself is done; the full status re-read below can be slow and must not keep the card "busy"
   return ok;
+}
+
+/** Re-read a wheel's full status in the background, bounded to 12 s, and show it when it arrives. */
+async function refreshStatus(side) {
+  const w = wheels[side]; if (!w.session) return;
+  let timer;
+  const guard = new Promise((res) => { timer = setTimeout(() => res(null), 12000); });
+  try {
+    const st = await Promise.race([w.session.readStatus(), guard]);
+    if (st) w.status = st; else trace(`[STATUS ${side}] re-read after write timed out (the wheel is slow to answer); showing the previous values`);
+  } catch (e) { trace(`[STATUS ${side}] re-read failed: ${e.message || e}`); } finally { clearTimeout(timer); }
+  render();
 }
 
 /** Change a setting on this wheel, or on both at once when "Keep both wheels in sync" is on. */
@@ -193,6 +204,7 @@ async function apply(side, label, fn) {
   if (app.sup && app.sup.state !== State.DISCONNECTED) { w.error = 'Turn off remote drive before changing settings.'; return render(); }
   const targets = app.sync ? SIDES.filter((sd) => wheels[sd].session && connected(sd)) : [side];
   await Promise.all(targets.map((sd) => applyOne(sd, label, fn)));
+  await Promise.all(targets.map(refreshStatus));
   if (targets.length > 1) {
     const [a, b] = targets.map((sd) => wheels[sd].status);
     if (a && b && (a.assistLevel !== b.assistLevel || a.profile !== b.profile || !!a.driveMode?.autoHold !== !!b.driveMode?.autoHold
@@ -523,7 +535,8 @@ function viewDrive() {
     out.push(h('div', { class: 'card' }, batteryNotice(),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.hillHold, onchange: async (e) => {
         app.hillHold = e.target.checked;
-        await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(app.hillHold)));
+        const res = await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(app.hillHold).catch(() => false)));
+        trace(`[HILL-HOLD] ${driveSides().map((sd, i) => `${sd}:${res[i] ? 'sent' : 'FAILED'}`).join(' ')}`);
       } }), h('span', {}, 'Hill hold (brake on slopes while driving remotely)'))));
     out.push(h('p', { id: 'diag', class: 'mut' }, ''));
     out.push(h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' })));

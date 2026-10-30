@@ -126,6 +126,7 @@ Each row compares this app's output with the real Python scripts on generated in
 | m25_utils.parse_hex | accepted inputs and Python's exact error text | tools |
 | upstream `ECSRemote` + `MockWheelSimulator` (the real emulator) | every encrypted request and response, plus the emulator's final state, for status reads, assist level, auto-hold, remote on/speed/off on a left and a right wheel (fixed IVs) | emulator |
 | upstream core `BluetoothTransport` (what the m5squared remote/supervisor sends) | connect, frames, disconnect against the emulator, byte for byte | emulator |
+| whole app pipeline (DriveSupervisor, Mapper, link, session, crypto) vs `MockWheelSimulator`, all three engines | emulated wheels end up in remote mode, ramp to the capped speed with the left wheel mirrored, turn, stop on release and e-stop, and leave remote mode on shutdown | emulator_pipeline |
 | ECSRemote.format_wheel_status | status report text, 1,500 payload sets | report |
 | m25_ecs_driveprofiles | factory presets and limits | presets |
 

@@ -129,6 +129,7 @@ Each row compares this app's output with the real Python scripts on generated in
 | whole app pipeline (DriveSupervisor, Mapper, link, session, crypto) vs `MockWheelSimulator`, all three engines | emulated wheels end up in remote mode, ramp to the capped speed with the left wheel mirrored, turn, stop on release and e-stop, and leave remote mode on shutdown | emulator_pipeline |
 | ECSRemote.format_wheel_status | status report text, 1,500 payload sets | report |
 | m25_ecs_driveprofiles | factory presets and limits | presets |
+| m25_parking `--dry-run` | whole stdout (SPP and encrypted frames, fixed IVs), 40 random argument sets | parking |
 
 Known deliberate differences: speed in CRUISE_VALUES is decoded signed (real wheels send reverse as a negative number; upstream documents it as unsigned), and the BMS charging read is experimental because no upstream script uses it.
 

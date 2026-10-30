@@ -57,7 +57,8 @@ export class Mapper {
     if (c.invertSteering) vy = -vy;
 
     let [left, right] = this.differential(vx, vy);
-    let max = c.maxSpeed[state.mode] ?? 0;
+    // Throttle: joystick magnitude (vx,vy in -1..1, after deadzone+curve) x mode ceiling (percent of 10 km/h) x UI speed-limit slider (speedScale 0.1..1).
+    let max = (c.maxSpeed[state.mode] ?? 0) * (c.speedScale ?? 1);
     if (this.lowBattery && max > c.maxSpeedLowBattery) max = c.maxSpeedLowBattery;
     left = clamp(left * max, -max, max);
     right = clamp(right * max, -max, max);
@@ -160,6 +161,7 @@ export class WheelPair {
  */
 export class CoreLink {
   constructor(left, right, scale = 1) { this.left = left; this.right = right; this.scale = scale; this.lastRaw = { left: 0, right: 0 }; }
+  get active() { return [this.left, this.right]; }
   get isConnected() { return !!(this.left.transport.isConnected && this.right.transport.isConnected); }
   async enterRemoteMode() {
     const L = this.left, R = this.right;
@@ -257,6 +259,51 @@ export class DriveSupervisor {
     await this.link.exitRemoteMode();
     this.mapper.reset();
     this.failsafeReason = null;
+    this.state = State.DISCONNECTED;
+  }
+
+  /**
+   * Hand the wheels back to the local DuoDrive dial. Awaitable; use for Disconnect / Turn off remote.
+   * 1) speed 0 + leave remote mode (the same exit sequence as the link), 2) read the drive-mode byte back and, if the
+   * wheel still reports REMOTE, repeat (up to `attempts`), 3) only then let the caller close the transport.
+   * Each frame is `01 [TID] 05 01 01 [PARAM] [PAYLOAD]`; the telegram id (TID) is a per-wheel rolling counter that starts at
+   * 0x80 and wraps at 0xFF - PacketBuilder increments it for every frame, so nothing here needs to manage it.
+   * The wheel releases the bus when the drive-mode byte (APP param 0x20) is written 0x00; extra status-query frames do not do that.
+   */
+  async releaseControl({ attempts = 4, pauseMs = 40 } = {}) {
+    this.stopLoop();
+    this.input = { vx: 0, vy: 0, deadman: false, mode: this.input.mode };
+    this.mapper.reset();
+    const wheels = this.link.active ?? [];
+    let released = false;
+    for (let i = 0; i < attempts && !released; i++) {
+      try { await this.link.exitRemoteMode(); } catch { /* keep trying */ }
+      if (pauseMs) await new Promise((r) => setTimeout(r, pauseMs));
+      released = true;
+      for (const w of wheels) {
+        let latched = true;
+        try { latched = await w._remoteLatched(); } catch { /* unreadable: assume still latched */ }
+        if (latched) released = false;
+      }
+    }
+    this.failsafeReason = null;
+    this.state = State.DISCONNECTED;
+    return released;
+  }
+
+  /**
+   * Synchronous best effort for pagehide / beforeunload, where nothing can be awaited: issue the stop and the
+   * "drive mode = 0" writes immediately (twice) without waiting for replies. Browsers may still cut the Bluetooth link first.
+   */
+  releaseNow() {
+    this.stopLoop();
+    for (const w of this.link.active ?? []) {
+      for (let i = 0; i < 2; i++) {
+        w._send(w.builder.writeRemoteSpeed(0)).catch(() => {});
+        w._send(w.builder.writeDriveMode(0)).catch(() => {});
+      }
+      w.driveBits = 0;
+    }
     this.state = State.DISCONNECTED;
   }
 

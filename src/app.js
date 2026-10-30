@@ -45,6 +45,7 @@ const app = {
   sup: null,
   driveAck: false,
   driveMode: DriveMode.SLOW,
+  speedPct: Math.min(100, Math.max(10, Number(store.get('speedPct')) || 100)),
   invertSteering: store.get('invertSteering', false),
   useGamepad: false,
   engine: store.get('engine', 'classic'),       // 'classic' = proven on real wheels; 'firmware' = m25-remote port (experimental)
@@ -144,7 +145,8 @@ function swapSides() {
 }
 
 async function disconnect(side) {
-  if (app.sup && app.sup.state !== State.DISCONNECTED) { await app.sup.shutdown(); app.sup = null; }
+  // Release remote mode (and verify it) BEFORE closing the link, or the wheel can stay locked out of the DuoDrive dial.
+  if (app.sup && app.sup.state !== State.DISCONNECTED) { await app.sup.releaseControl(); app.sup = null; }
   const w = wheels[side];
   try { await w.transport?.disconnect(); } catch { /* ignore */ }
   wheels[side] = blank();
@@ -508,6 +510,8 @@ function viewDrive() {
       h('div', { class: st === State.FAILSAFE ? 'bad' : live ? 'ok' : 'warn' }, 'State: ', st, sup.failsafeReason ? ` (${sup.failsafeReason})` : ''),
       st === State.PAIRED && h('p', { class: 'mut' }, 'Remote mode is on. Arm to enable the joystick. Hold your finger on the pad to move; release to stop.'),
       h('div', { class: 'seg' }, [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']].map(([m, t]) => h('button', { class: app.driveMode === m ? 'on' : '', onclick: () => { app.driveMode = m; render(); } }, t))),
+      h('label', { for: 'spd' }, `Speed limit: ${Math.round(app.speedPct)} % of the ${app.driveMode} ceiling`),
+      h('input', { id: 'spd', type: 'range', min: 10, max: 100, step: 5, value: app.speedPct, oninput: (e) => { app.speedPct = +e.target.value; store.set('speedPct', app.speedPct); sup.mapper.config.speedScale = app.speedPct / 100; e.target.previousSibling.textContent = `Speed limit: ${app.speedPct} % of the ${app.driveMode} ceiling`; } }),
       h('div', { class: 'row' },
         st === State.PAIRED && h('button', { class: 'btn', onclick: () => { sup.arm(); acquireWakeLock(); render(); } }, 'Arm'),
         live && h('button', { class: 'btn ghost', onclick: async () => { await sup.disarm(); render(); } }, 'Disarm'),
@@ -552,7 +556,7 @@ function batteryNotice() {
 async function enableDrive() {
   if (batteryLocked()) return;
   if (!(await confirmDialog('Enable remote drive?', 'Both wheels will switch into remote-control mode and respond to the on-screen joystick. Release the pad or press EMERGENCY STOP to stop.', 'Enable'))) return;
-  const mapper = new Mapper({ ...defaultMapperConfig(), invertSteering: app.invertSteering });
+  const mapper = new Mapper({ ...defaultMapperConfig(), invertSteering: app.invertSteering, speedScale: app.speedPct / 100 });
   // Classic/core send percent as the raw speed value, which is far below what moves a chair (upstream's own demo speeds are 80/150/250).
   // Scale 2.5 maps the Slow/Normal/Fast presets (30/60/100 %) to 75/150/250, matching those.
   const scale = 2.5;
@@ -580,7 +584,7 @@ async function reportArm() {
 }
 
 async function disableDrive() {
-  if (app.sup) { await app.sup.shutdown(); app.sup = null; }
+  if (app.sup) { const ok = await app.sup.releaseControl(); if (!ok) trace('[RELEASE] a wheel still reported remote mode after 4 tries; power-cycle it if the dial stays dead'); app.sup = null; }
   releaseWakeLock(); render();
 }
 
@@ -640,7 +644,10 @@ setInterval(() => {
 // Leaving the app / hiding the page must stop the chair.
 const bail = (why) => { if (app.sup && (app.sup.state === State.ARMED || app.sup.state === State.DRIVING)) app.sup.emergencyStop(why); app.pad = { vx: 0, vy: 0, held: false }; };
 document.addEventListener('visibilitychange', () => { if (document.hidden) bail('App went to background'); });
-window.addEventListener('pagehide', () => bail('Page closed'));
+// Closing/reloading the tab: stop immediately, then fire the "leave remote mode" writes (cannot be awaited here).
+const releaseOnExit = () => { if (app.sup && app.sup.state !== State.DISCONNECTED) { bail('Page closed'); app.sup.releaseNow(); } };
+window.addEventListener('beforeunload', releaseOnExit);
+window.addEventListener('pagehide', releaseOnExit);
 window.addEventListener('blur', () => setTimeout(() => { if (document.hidden || !document.hasFocus()) bail('App lost focus'); }, 300));
 
 let wakeLock = null;

@@ -201,3 +201,28 @@ test('classic WheelPair scale maps Slow/Normal/Fast (30/60/100 %) to upstream de
   assert.deepEqual(L.speeds, [-75, -150, -250]);
   assert.deepEqual(pair.lastRaw, { left: -250, right: 250 });
 });
+
+test('speedScale (UI slider) scales the throttle linearly: magnitude x mode ceiling x slider', () => {
+  for (const [scale, mode, cap] of [[1, 'fast', 100], [0.5, 'fast', 50], [0.25, 'normal', 15], [0.1, 'slow', 3]]) {
+    const cfg = { ...defaultMapperConfig(), rampRate: 0, speedScale: scale };
+    assert.equal(new Mapper(cfg, clock().now).map(ctl(1, 0, mode)).right, cap, `${scale} ${mode}`);
+    assert.equal(new Mapper(cfg, clock().now).map(ctl(0.5, 0, mode)).right, Math.round(cap * ((0.5 - 0.1) / 0.9) ** 2), `half stick ${scale} ${mode}`);
+  }
+});
+
+test('releaseControl: stops, leaves remote mode on both wheels, verifies by readback', async () => {
+  const { L, R, sup } = await rig();
+  await sup.connect(); sup.arm(); sup.setInput(1, 0, true, 'normal'); await sup.tick();
+  assert.ok(await sup.releaseControl());
+  assert.equal(L.driveMode & 4, 0); assert.equal(R.driveMode & 4, 0);
+  assert.equal(sup.state, State.DISCONNECTED);
+  assert.equal(L.speeds.at(-1), 0); assert.equal(R.speeds.at(-1), 0);
+});
+
+test('releaseNow (tab close) issues stop + drive-mode-0 writes synchronously', async () => {
+  const { L, R, sup } = await rig();
+  await sup.connect();
+  sup.releaseNow();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(L.driveMode & 4, 0); assert.equal(R.driveMode & 4, 0);
+});

@@ -129,6 +129,7 @@ Each row compares this app's output with the real Python scripts on generated in
 | whole app pipeline (DriveSupervisor, Mapper, link, session, crypto) vs `MockWheelSimulator`, all three engines | emulated wheels end up in remote mode, ramp to the capped speed with the left wheel mirrored, turn, stop on release and e-stop, and leave remote mode on shutdown | emulator_pipeline |
 | ECSRemote.format_wheel_status | status report text, 1,500 payload sets | report |
 | m25_ecs_driveprofiles | factory presets and limits | presets |
+| 6static/m25-emulator (ESP32 wheel firmware, real C++ compiled natively) | every app frame decodes; drive mode/speed/assist state; supervisor drives and releases both wheels on all three engines; 1200 ms command watchdog | emulator25 |
 | m25_parking `--dry-run` | whole stdout (SPP and encrypted frames, fixed IVs), 40 random argument sets | parking |
 
 Known deliberate differences: speed in CRUISE_VALUES is decoded signed (real wheels send reverse as a negative number; upstream documents it as unsigned), and the BMS charging read is experimental because no upstream script uses it.
@@ -141,3 +142,9 @@ against upstream's `MockWheelSimulator` with deterministic IVs and records every
 (`M5SQ_UPSTREAM`, default `/home/claude/6static/m5squared`) it also talks to the live emulator through `tools/emulator_bridge.py`; otherwise it
 checks against the recording. The firmware ("m25-remote") engine is not covered by this: it deliberately differs from upstream's Python
 (mm/s speeds, verified arming), and is checked against the firmware's own mapper instead.
+
+### m25-emulator (ESP32 wheel firmware)
+
+`tools/emu_shim/build.sh` compiles the emulator's own headers (`protocol.h`, `crypto.h`, `packet.h`, `command.h`, `state.h`, `safety.h`) natively with a small Arduino/mbedtls shim
+(needs g++ and libssl-dev; checkout path in `M25_EMULATOR`, default `/home/claude/ref/m25-emulator`). `test/emulator25.test.mjs` drives it with the app's real session and supervisor code.
+Known emulator quirk: it ACKs every write with telegram id `0x01` instead of echoing the request's id, so a strict client (this app, upstream `ECSRemote`) treats the ACK as a mismatch; the tests patch the id to check everything else and one test pins the as-shipped behaviour.

@@ -30,7 +30,7 @@ for i in range(1500):
         'duo_drive': R.parse_duo_drive_params(pl['duo']) if pl['duo'] is not None else None,
         'sw_version': R.parse_sw_version(pl['ver']) if pl['ver'] is not None else None,
     }
-    name = rnd.choice(['Left', 'Right']); addr = rnd.choice(['AA:BB:CC:DD:EE:FF', 'M25V2_00A0503833C6'])
+    name = rnd.choice(['Left', 'Right']); addr = rnd.choice(['AA:BB:CC:DD:EE:FF', 'M25V2_00A0000000FF'])
     out.append({'payloads': {k: (v.hex() if v is not None else None) for k, v in pl.items()}, 'name': name, 'addr': addr,
                 'text': ECSRemote.format_wheel_status(st, name, addr)})
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

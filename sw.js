@@ -1,5 +1,5 @@
 // App-shell cache so the PWA opens offline. Bump VERSION when files change.
-const VERSION = 'm5sq-v27';
+const VERSION = 'm5sq-v28';
 const SHELL = ['./', 'index.html', 'style.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'src/app.js', 'src/aes.js', 'src/ble.js', 'src/crypto.js', 'src/drive.js', 'src/generated.js', 'src/packets.js', 'src/protocol.js', 'src/session.js', 'src/analyzer.js', 'src/names.js', 'src/packettool.js', 'src/parking.js', 'src/state.js', 'src/ui/store.js', 'src/ui/dom.js', 'src/ui/connection.js', 'src/ui/telemetry.js', 'src/ui/status.js', 'src/ui/params.js', 'src/ui/qrscan.js', 'src/ui/wheelsview.js', 'src/ui/drivepanel.js', 'src/ui/about.js', 'src/presets.js', 'src/report.js', 'src/report_names.js', 'vendor/jsQR.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });

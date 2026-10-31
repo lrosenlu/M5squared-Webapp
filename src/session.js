@@ -36,6 +36,15 @@ export class WheelSession {
     this.replyTimeoutMs = replyTimeoutMs;
   }
 
+  /** Resolves when every queued exchange has finished (use before closing the link). */
+  idle() { return this._txChain; }
+
+  /** Raw drive-mode byte from the wheel, or null. */
+  readDriveModeByte() { return this._read(() => this.builder.readDriveMode(), PARAM.STATUS_DRIVE_MODE, (p) => (p.length ? p[0] : null)).catch(() => null); }
+
+  /** Counters for the drive diagnostics line. */
+  driveStats() { return { writes: this.driveWrites || 0, coalesced: this.skippedDrives || 0, lastOk: this._lastDriveOk !== false }; }
+
   async initConnection() {
     const h = parseHeader(await this._transact(this.builder.writeSystemMode(SYSTEM_MODE_CONNECT)));
     return !!h && isAck(h);

@@ -45,7 +45,7 @@ const app = {
   sup: null,
   driveAck: false,
   driveMode: DriveMode.SLOW,
-  releaseMode: ['standard', 'firmware', 'standby'].includes(store.get('releaseMode')) ? store.get('releaseMode') : 'standard',
+  releaseMode: ['standard', 'firmware'].includes(store.get('releaseMode')) ? store.get('releaseMode') : 'standard',
   bmsCheck: store.get('bmsCheck', true),
   speedPct: Math.min(100, Math.max(10, Number(store.get('speedPct')) || 100)),
   invertSteering: store.get('invertSteering', false),
@@ -150,6 +150,12 @@ async function disconnect(side) {
   // Release remote mode (and verify it) BEFORE closing the link, or the wheel can stay locked out of the DuoDrive dial.
   if (app.sup && app.sup.state !== State.DISCONNECTED) { await app.sup.releaseControl({ variant: app.releaseMode }); app.sup = null; }
   const w = wheels[side];
+  // Upstream disconnects between exchanges. Stop polling this wheel, let the request in flight finish, then close.
+  w.closing = true;
+  const t0 = Date.now();
+  while ((polling[side] || w.busy) && Date.now() - t0 < 2500) await new Promise((r) => setTimeout(r, 25));
+  try { await Promise.race([w.session?._txChain, new Promise((r) => setTimeout(r, 1500))]); } catch { /* ignore */ }
+  await new Promise((r) => setTimeout(r, 100));
   try { await w.transport?.disconnect(); } catch { /* ignore */ }
   wheels[side] = blank();
   render();
@@ -221,7 +227,7 @@ const driving = () => !!app.sup && app.sup.state !== State.DISCONNECTED;
 async function pollTelemetry() {
   for (const side of SIDES) {
     const w = wheels[side];
-    if (!connected(side) || !w.session || polling[side] || w.busy || reconnecting[side]) continue;
+    if (!connected(side) || !w.session || polling[side] || w.busy || w.closing || reconnecting[side]) continue;
     // Like the firmware, leave the link alone while armed/driving unless live speed was asked for.
     if (driving() && !app.liveSpeedWhileDriving) continue;
     polling[side] = true;
@@ -682,10 +688,10 @@ function viewAbout() {
     h('div', { class: 'card' }, h('h2', {}, 'Source'),
       h('p', { class: 'mut' }, 'AGPL-3.0: if you host a modified copy, you must offer its source to users. See LICENSE and NOTICE.md in the project.')),
     h('div', { class: 'card' }, h('h2', {}, 'Release method'),
-      h('p', { class: 'mut' }, 'How "Turn off remote" and Disconnect hand the wheels back to the DuoDrive dial. If the dial stays dead until a power cycle, try the next one (wheels lifted).'),
-      h('div', { class: 'seg' }, [['standard', 'Standard'], ['firmware', 'Firmware exact'], ['standby', 'Firmware + standby']].map(([m, t]) =>
+      h('p', { class: 'mut' }, 'How "Turn off remote" and Disconnect hand the wheels back to the DuoDrive dial. If the dial stays dead until a power cycle, try the other one (wheels lifted).'),
+      h('div', { class: 'seg' }, [['standard', 'Standard'], ['firmware', 'Firmware exact']].map(([m, t]) =>
         h('button', { class: app.releaseMode === m ? 'on' : '', onclick: () => { app.releaseMode = m; store.set('releaseMode', m); render(); } }, t))),
-      h('p', { class: 'mut' }, 'Standard: connect, then drive mode 0. Firmware exact: stop, wait 50 ms, drive mode 0 (what m25-remote does). Firmware + standby: also sends system mode 0x02 afterwards (experimental).')),
+      h('p', { class: 'mut' }, 'Standard: connect, then drive mode 0. Firmware exact: stop, wait 50 ms, drive mode 0 (what m25-remote does). Do not use system mode 0x02 (standby): on real wheels it left the DuoDrive dial unusable until a power cycle and a 30 s dial hold.')),
     h('div', { class: 'card' },
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.bmsCheck, onchange: (e) => { app.bmsCheck = e.target.checked; store.set('bmsCheck', app.bmsCheck); } }),
         h('span', {}, 'Charging check (experimental battery-management read, once a second). Turn off if the DuoDrive dial misbehaves after remote use.'))),

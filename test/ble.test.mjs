@@ -110,3 +110,14 @@ test('stray non-frame notifications (e.g. "2B 00 00") do not break reassembly', 
   t._receive(pkt);                                              // next reply still decodes
   assert.equal(got.length, 2);
 });
+
+test('disconnect mirrors upstream: stop notifications first, then drop the link', async () => {
+  const { BLEWheelTransport } = await import('../src/ble.js');
+  const calls = [];
+  const ch = { uuid: 'rx', stopNotifications: async () => { calls.push('stop_notify'); }, removeEventListener() {} };
+  const device = { gatt: { connected: true, disconnect: () => calls.push('gatt_disconnect') }, removeEventListener() {} };
+  const t = new BLEWheelTransport(device, new Uint8Array(16));
+  t.notifyChar = ch;
+  await t.disconnect();
+  assert.deepEqual(calls, ['stop_notify', 'gatt_disconnect']);
+});

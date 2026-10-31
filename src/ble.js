@@ -43,7 +43,8 @@ export async function pickWheel(showAll = false) {
 }
 
 export class BLEWheelTransport {
-  constructor(device, key, { trace } = {}) {
+  constructor(device, key, { trace, listenExtra = false } = {}) {
+    this.listenExtra = listenExtra;
     this.device = device;
     this.key = key;
     this.trace = trace ?? null;
@@ -87,7 +88,8 @@ export class BLEWheelTransport {
           const pr = c.properties ? Object.entries(c.properties).filter(([, v]) => v).map(([k]) => k).join(',') : '?';
           this.trace?.(`[GATT] ${c.uuid} props=${pr}`);
           const isCfg = c.uuid === this.notifyChar.uuid || c.uuid === this.writeChar.uuid;
-          if (!isCfg && c.properties && (c.properties.notify || c.properties.indicate)) this.extraNotify.push(c);
+          // Upstream only ever subscribes to its one RX characteristic. Subscribing to unknown ones is opt-in (diagnostics only).
+          if (!isCfg && this.listenExtra && c.properties && (c.properties.notify || c.properties.indicate)) this.extraNotify.push(c);
         }
       } catch (e) { this.trace?.(`[GATT] could not list characteristics: ${e.message || e}`); }
     }
@@ -108,8 +110,18 @@ export class BLEWheelTransport {
   }
 
   async disconnect() {
+    const wasUp = !!this.device.gatt?.connected;
     this.connected = false;
     this._failWaiters();
+    // Same order as upstream's M25BluetoothBLE.disconnect(): stop notifications (writes the CCCD off), then drop the link.
+    if (wasUp) {
+      const bounded = (p) => Promise.race([p, sleep(1500)]);
+      for (const c of new Set([this.notifyChar, ...(this.extraNotify ?? [])])) {
+        if (!c) continue;
+        try { await bounded(c.stopNotifications()); this.trace?.(`[GATT] notifications stopped on ${c.uuid}`); } catch (e) { this.trace?.(`[GATT] stopNotifications failed: ${e.message || e}`); }
+      }
+      await sleep(100);
+    }
     try { this.notifyChar?.removeEventListener('characteristicvaluechanged', this._onValue); } catch { /* ignore */ }
     for (const c of this.extraNotify ?? []) { try { c.removeEventListener('characteristicvaluechanged', this._onValue); } catch { /* ignore */ } }
     try { this.device.removeEventListener('gattserverdisconnected', this._onGatt); } catch { /* ignore */ }

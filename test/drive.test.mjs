@@ -240,3 +240,12 @@ test('releaseControl: a late/queued drive write cannot re-assert REMOTE after th
   assert.equal(L.driveMode & 4, 0); assert.equal(R.driveMode & 4, 0);
   assert.equal(L.speeds.at(-1), 0);
 });
+
+test('release variants all clear REMOTE; standby also writes system mode 2', async () => {
+  for (const variant of ['standard', 'firmware', 'standby']) {
+    const { L, R, sup } = await rig();
+    await sup.connect(); sup.arm();
+    assert.ok(await sup.releaseControl({ variant }), variant);
+    assert.equal(L.driveMode & 4, 0); assert.equal(R.driveMode & 4, 0);
+  }
+});

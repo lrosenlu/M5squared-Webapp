@@ -45,6 +45,8 @@ const app = {
   sup: null,
   driveAck: false,
   driveMode: DriveMode.SLOW,
+  releaseMode: ['standard', 'firmware', 'standby'].includes(store.get('releaseMode')) ? store.get('releaseMode') : 'standard',
+  bmsCheck: store.get('bmsCheck', true),
   speedPct: Math.min(100, Math.max(10, Number(store.get('speedPct')) || 100)),
   invertSteering: store.get('invertSteering', false),
   useGamepad: false,
@@ -146,7 +148,7 @@ function swapSides() {
 
 async function disconnect(side) {
   // Release remote mode (and verify it) BEFORE closing the link, or the wheel can stay locked out of the DuoDrive dial.
-  if (app.sup && app.sup.state !== State.DISCONNECTED) { await app.sup.releaseControl(); app.sup = null; }
+  if (app.sup && app.sup.state !== State.DISCONNECTED) { await app.sup.releaseControl({ variant: app.releaseMode }); app.sup = null; }
   const w = wheels[side];
   try { await w.transport?.disconnect(); } catch { /* ignore */ }
   wheels[side] = blank();
@@ -223,7 +225,7 @@ async function pollTelemetry() {
     // Like the firmware, leave the link alone while armed/driving unless live speed was asked for.
     if (driving() && !app.liveSpeedWhileDriving) continue;
     polling[side] = true;
-    w.session.readTelemetry({ bms: !driving() }).then((t) => {
+    w.session.readTelemetry({ bms: !driving() && app.bmsCheck }).then((t) => {
       w.tele = { ...(w.tele || {}), ...t, bms: t.bms ?? w.tele?.bms };
       if (t.battery != null && w.status) w.status.battery = t.battery;
     }).catch(() => {}).finally(() => { polling[side] = false; onTelemetry(); });
@@ -600,7 +602,7 @@ async function reportArm() {
 }
 
 async function disableDrive() {
-  if (app.sup) { const ok = await app.sup.releaseControl(); if (!ok) trace('[RELEASE] a wheel still reported remote mode after 4 tries; power-cycle it if the dial stays dead'); app.sup = null; }
+  if (app.sup) { const ok = await app.sup.releaseControl({ variant: app.releaseMode }); if (!ok) trace('[RELEASE] a wheel still reported remote mode after 4 tries; power-cycle it if the dial stays dead'); app.sup = null; }
   releaseWakeLock(); render();
 }
 
@@ -679,6 +681,14 @@ function viewAbout() {
       h('p', { class: 'mut' }, 'Provided without warranty. Use only with wheels you own. Changing drive settings or driving remotely can affect safety, warranty and legality. This web port has not been verified on real hardware.')),
     h('div', { class: 'card' }, h('h2', {}, 'Source'),
       h('p', { class: 'mut' }, 'AGPL-3.0: if you host a modified copy, you must offer its source to users. See LICENSE and NOTICE.md in the project.')),
+    h('div', { class: 'card' }, h('h2', {}, 'Release method'),
+      h('p', { class: 'mut' }, 'How "Turn off remote" and Disconnect hand the wheels back to the DuoDrive dial. If the dial stays dead until a power cycle, try the next one (wheels lifted).'),
+      h('div', { class: 'seg' }, [['standard', 'Standard'], ['firmware', 'Firmware exact'], ['standby', 'Firmware + standby']].map(([m, t]) =>
+        h('button', { class: app.releaseMode === m ? 'on' : '', onclick: () => { app.releaseMode = m; store.set('releaseMode', m); render(); } }, t))),
+      h('p', { class: 'mut' }, 'Standard: connect, then drive mode 0. Firmware exact: stop, wait 50 ms, drive mode 0 (what m25-remote does). Firmware + standby: also sends system mode 0x02 afterwards (experimental).')),
+    h('div', { class: 'card' },
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.bmsCheck, onchange: (e) => { app.bmsCheck = e.target.checked; store.set('bmsCheck', app.bmsCheck); } }),
+        h('span', {}, 'Charging check (experimental battery-management read, once a second). Turn off if the DuoDrive dial misbehaves after remote use.'))),
     packetToolsCard(),
     h('div', { class: 'card' }, h('h2', {}, 'Read probe'),
       h('p', { class: 'mut' }, 'Send one READ request to a connected wheel to explore what it reports (for example battery voltage, if your firmware supports it). Format: service param [payload], hex. Only read parameters (ending in 1) are allowed. Replies appear below and in the log.'),

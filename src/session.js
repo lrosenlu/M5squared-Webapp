@@ -233,7 +233,8 @@ export class WheelSession {
    * Leave remote mode. `variant` picks the exit sequence (the DuoDrive dial must get control back):
    *   'standard' - SYSTEM_MODE=connect, then drive mode 0 (upstream ECSRemote style)
    *   'firmware' - exactly what m25-remote's bleDisconnect() does: (caller already sent speed 0), wait 50 ms, drive mode 0, no re-init
-   *   'standby'  - 'firmware', then SYSTEM_MODE=standby (0x02), which no known script sends: experimental
+   *   'standby'  - NOT OFFERED IN THE UI: 'firmware' then SYSTEM_MODE=standby (0x02). Tested on real wheels: the DuoDrive dial then stays
+   *                unusable until a power cycle plus a 30 s dial hold. Kept only so the experiment stays reproducible.
    */
   async exitRemoteMode(variant = 'standard') {
     if (variant === 'standard') await this.initConnection();

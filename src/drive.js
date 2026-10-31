@@ -145,12 +145,12 @@ export class WheelPair {
     return r.every(Boolean);
   }
 
-  async exitRemoteMode(pauseMs = 40) {
+  async exitRemoteMode(pauseMs = 40, variant = 'standard') {
     for (let i = 0; i < 3; i++) {
       await Promise.all(this.active.map((w) => w.sendRemoteSpeed(0)));
       if (pauseMs) await new Promise((r) => setTimeout(r, pauseMs));
     }
-    for (const w of this.active) await w.exitRemoteMode();
+    for (const w of this.active) await w.exitRemoteMode(variant);
   }
 }
 
@@ -270,7 +270,7 @@ export class DriveSupervisor {
    * 0x80 and wraps at 0xFF - PacketBuilder increments it for every frame, so nothing here needs to manage it.
    * The wheel releases the bus when the drive-mode byte (APP param 0x20) is written 0x00; extra status-query frames do not do that.
    */
-  async releaseControl({ attempts = 4, pauseMs = 40 } = {}) {
+  async releaseControl({ attempts = 4, pauseMs = 40, variant = 'standard' } = {}) {
     this.stopLoop();
     this.input = { vx: 0, vy: 0, deadman: false, mode: this.input.mode };
     this.mapper.reset();
@@ -278,7 +278,7 @@ export class DriveSupervisor {
     await Promise.all(wheels.map((w) => w.quiesce?.()));
     let released = false;
     for (let i = 0; i < attempts && !released; i++) {
-      try { await this.link.exitRemoteMode(); } catch { /* keep trying */ }
+      try { await this.link.exitRemoteMode(pauseMs, variant); } catch { /* keep trying */ }
       if (pauseMs) await new Promise((r) => setTimeout(r, pauseMs));
       released = true;
       for (const w of wheels) {

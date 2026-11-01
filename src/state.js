@@ -25,7 +25,7 @@ export const app = {
   speedPct: Math.min(100, Math.max(10, Number(store.get('speedPct')) || 100)),
   invertSteering: store.get('invertSteering', false),
   useGamepad: false,
-  engine: store.get('engine', 'classic'),       // 'classic' = proven on real wheels; 'core' = upstream transport; 'firmware' = m25-remote port (experimental)
+  engine: store.get('engine', 'firmware'),      // 'firmware' = m25-remote port, the only engine confirmed to drive real wheels; 'classic' and 'core' are kept for comparison
   liveSpeedWhileDriving: false,
   pad: { vx: 0, vy: 0, held: false },
   keyDraft: { left: '', right: '' },

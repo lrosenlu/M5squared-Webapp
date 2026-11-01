@@ -57,9 +57,9 @@ export function viewDrive() {
 }
 
 const ENGINE_HELP = {
-  classic: 'Classic: the arming and speed commands that worked on real wheels. Gentle speeds.',
+  classic: 'Classic: older arming and speed commands. Did not drive on real wheels in testing; kept for comparison.',
   core: 'Upstream core: exactly what the m5squared remote sends (no replies awaited, remote-only mode). Gentle speeds.',
-  firmware: 'Firmware (experimental): port of the m25-remote firmware, real mm/s speeds, stricter arming. Test lifted.',
+  firmware: 'Firmware (recommended): port of the m25-remote firmware, real mm/s speeds, stricter arming. The engine confirmed to drive real wheels.',
 };
 const speedLabel = () => `Speed limit: ${Math.round(app.speedPct)} % of the ${app.driveMode} ceiling`;
 

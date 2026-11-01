@@ -3,7 +3,7 @@ import { WheelPair, CoreLink, DriveSupervisor, State, defaultMapperConfig, Mappe
 import { app, wheels, SIDES, BATT_WARN, BATT_CRITICAL, BATT_LOW_CAP, render, trace, driving, driveSides, driveReady, minBattery, batteryLocked, sideMismatch } from '../state.js';
 import { store } from './store.js';
 import { $, h, confirmDialog, section } from './dom.js';
-import { speedometer, updateSpeedo } from './telemetry.js';
+import { dashboard, updateSpeedo } from './telemetry.js';
 
 const isLive = () => app.sup?.state === State.ARMED || app.sup?.state === State.DRIVING;
 
@@ -30,31 +30,30 @@ export function viewDrive() {
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.liveSpeedWhileDriving, onchange: (e) => { app.liveSpeedWhileDriving = e.target.checked; } }), h('span', {}, 'Poll live speed while driving (the firmware avoids this)')),
     ]));
   } else {
+    // Live view: one fixed-height screen (no scrolling). The pad takes whatever height is left.
     const live = isLive();
-    out.push(h('div', { class: 'card' },
-      h('div', { class: st === State.FAILSAFE ? 'bad' : live ? 'ok' : 'warn' }, 'State: ', st, sup.failsafeReason ? ` (${sup.failsafeReason})` : ''),
-      st === State.PAIRED && h('p', { class: 'mut' }, 'Remote mode is on. Arm to enable the joystick, then hold your finger on the pad to move; release to stop.'),
-      h('div', { class: 'seg' }, [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']].map(([m, t]) => h('button', { class: app.driveMode === m ? 'on' : '', onclick: () => { app.driveMode = m; render(); } }, t))),
-      h('label', { for: 'spd' }, speedLabel()),
-      h('input', { id: 'spd', type: 'range', min: 10, max: 100, step: 5, value: app.speedPct, oninput: (e) => { app.speedPct = +e.target.value; store.set('speedPct', app.speedPct); sup.mapper.config.speedScale = app.speedPct / 100; e.target.previousSibling.textContent = speedLabel(); } }),
-      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.hillHold, onchange: toggleHillHold }), h('span', {}, 'Hill hold (brake on slopes)')),
+    setTimeout(() => { updateSpeedo(); updateDiag(); }, 0);
+    return [h('div', { class: 'drivewrap' },
+      dashboard(),
+      h('div', { class: 'card ctl' },
+        h('div', { class: 'seg' }, [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']].map(([m, t]) => h('button', { class: app.driveMode === m ? 'on' : '', onclick: () => { app.driveMode = m; render(); } }, t))),
+        h('label', { for: 'spd', class: 'spdlbl' }, speedLabel()),
+        h('input', { id: 'spd', type: 'range', min: 10, max: 100, step: 5, value: app.speedPct, oninput: (e) => { app.speedPct = +e.target.value; store.set('speedPct', app.speedPct); sup.mapper.config.speedScale = app.speedPct / 100; e.target.previousSibling.textContent = speedLabel(); } })),
+      h('div', { id: 'padbox' },
+        h('p', { id: 'padHint', class: 'hint ' + (st === State.FAILSAFE ? 'bad' : 'mut') },
+          st === State.FAILSAFE ? `Failsafe${sup.failsafeReason ? ': ' + sup.failsafeReason : ''}` : st === State.PAIRED ? 'Remote mode on. Press Arm, then hold the pad to move.' : ''),
+        h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' }))),
       batteryNotice(),
-      h('div', { class: 'row' },
+      h('button', { id: 'hold', class: 'holdbtn' + (app.hillHold ? ' on' : ''), onclick: toggleHillHold },
+        h('b', {}, 'ANTI-ROLLBACK ' + (app.hillHold ? 'ON' : 'OFF')), h('span', {}, app.hillHold ? 'Brakes on slopes. Tap to turn off' : 'Tap to turn on')),
+      h('div', { class: 'row tight' },
         st === State.PAIRED && h('button', { class: 'btn', onclick: () => { sup.arm(); acquireWakeLock(); render(); } }, 'Arm'),
         live && h('button', { class: 'btn ghost', onclick: async () => { await sup.disarm(); render(); } }, 'Disarm'),
-        h('button', { class: 'btn ghost', onclick: disableDrive }, 'Turn off remote'))));
-    out.push(h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' })));
-    out.push(h('p', { id: 'padHint', class: 'warn' }, ''));
+        st === State.FAILSAFE && h('button', { class: 'btn', onclick: async () => { await sup.reset(); render(); } }, 'Reset'),
+        h('button', { class: 'btn ghost', onclick: disableDrive }, 'Turn off remote')),
+      h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'))];
   }
   out.push(h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'));
-  if (st === State.FAILSAFE) out.push(h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => { await sup.reset(); render(); } }, 'Reset')));
-  if (sup && st !== State.DISCONNECTED && st !== State.CONNECTING) {
-    out.push(h('div', { class: 'bars' }, h('div', {}, h('div', { class: 'mut' }, 'Left ', h('span', { id: 'lv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'lb' }))),
-      h('div', {}, h('div', { class: 'mut' }, 'Right ', h('span', { id: 'rv' }, '0')), h('div', { class: 'bar' }, h('i', { id: 'rb' })))));
-    out.push(speedometer());
-    out.push(section('drive-diag', 'Diagnostics', h('p', { id: 'diag', class: 'mut' }, '')));
-  }
-  setTimeout(() => { updateSpeedo(); updateDiag(); }, 0);
   return out;
 }
 
@@ -85,8 +84,8 @@ function batteryNotice() {
   return null;
 }
 
-async function toggleHillHold(e) {
-  app.hillHold = e.target.checked;
+async function toggleHillHold() {
+  app.hillHold = !app.hillHold; render();
   const res = await Promise.all(driveSides().map((sd) => wheels[sd].session.setHillHold(app.hillHold).catch(() => false)));
   trace(`[HILL-HOLD] ${driveSides().map((sd, i) => `${sd}:${res[i] ? 'sent' : 'FAILED'}`).join(' ')}`);
 }

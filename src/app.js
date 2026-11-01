@@ -16,6 +16,8 @@ function render() {
   renderChips(); renderBanner();
   if (app.tab === 'drive' && $('#pad') && app.pad.held) return; // never rebuild the DOM under a finger
   view.replaceChildren(...VIEWS[app.tab]());
+  const fit = !!view.querySelector('.drivewrap'); // live drive screen never scrolls
+  view.classList.toggle('fit', fit); document.body.classList.toggle('fit', fit);
   if ($('#pad')) attachPad(); // listeners need the element to be in the DOM
 }
 

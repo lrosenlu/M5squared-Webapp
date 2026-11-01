@@ -35,23 +35,29 @@ export const startTelemetry = () => setInterval(pollTelemetry, 1000);
 export function speedOf(side) { const c = wheels[side].tele?.cruise; return connected(side) && c ? (side === 'left' ? -c.speedKmh : c.speedKmh) : null; }
 
 export function updateSpeedo() {
-  const el = $('#speedo'); if (!el) return;
+  const el = $('#speedo');
+  if (!app.sup) app.tripBase = null;
+  if (!el) return;
   const v = SIDES.map(speedOf).filter((x) => x != null);
   const avg = v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
   const max = MAX_SPEED_MMPS * 0.0036;
-  $('#speedoNum').textContent = avg.toFixed(1);
-  $('#speedoArc').setAttribute('stroke-dasharray', `${Math.min(1, Math.abs(avg) / max) * 157} 157`);
+  const d = SIDES.map((sd) => (connected(sd) ? wheels[sd].tele?.cruise?.distanceKm : null)).filter((x) => x != null);
+  const odo = d.length ? d.reduce((a, b) => a + b, 0) / d.length : null;
+  if (odo != null && app.tripBase == null) app.tripBase = odo;
+  $('#speedoNum').textContent = Math.abs(avg).toFixed(1);
+  $('#speedoArc').style.width = Math.min(1, Math.abs(avg) / max) * 100 + '%';
+  $('#odoNum').textContent = odo != null ? odo.toFixed(2) : '--';
+  $('#tripNum').textContent = odo != null ? Math.max(0, odo - app.tripBase).toFixed(2) : '--';
   $('#speedoLR').textContent = SIDES.map((sd) => (sd === 'left' ? 'L ' : 'R ') + (speedOf(sd)?.toFixed(1) ?? '-')).join('   ');
+  const live = $('#liveBtn'); if (live) live.textContent = app.liveSpeedWhileDriving ? 'Live speed: on' : 'Live speed: off (tap)';
 }
 
-export function speedometer() {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 120 70'); svg.setAttribute('class', 'speedo-svg');
-  const mk = (d, id, cls) => { const p = document.createElementNS(ns, 'path'); p.setAttribute('d', d); p.setAttribute('fill', 'none'); p.setAttribute('stroke-width', '8'); p.setAttribute('stroke-linecap', 'round'); if (id) p.id = id; p.setAttribute('class', cls); return p; };
-  const arc = 'M 10 60 A 50 50 0 0 1 110 60';
-  svg.append(mk(arc, '', 'speedo-bg'), mk(arc, 'speedoArc', 'speedo-fg'));
-  svg.lastChild.setAttribute('stroke-dasharray', '0 157'); svg.lastChild.setAttribute('pathLength', '157');
-  svg.firstChild.setAttribute('pathLength', '157');
-  return h('div', { id: 'speedo', class: 'card speedo' }, svg, h('div', { class: 'speedo-num' }, h('span', { id: 'speedoNum' }, '0.0'), ' km/h'),
-    h('div', { id: 'speedoLR', class: 'mut' }, ''));
+/** Large drive dashboard: speed, odometer (wheel total) and trip distance (since remote drive was enabled). */
+export function dashboard() {
+  const tile = (label, id, unit) => h('div', { class: 'tile' }, h('div', { class: 'mut' }, label), h('div', { class: 'tnum' }, h('span', { id }, '--'), ' ' + unit));
+  return h('div', { id: 'speedo', class: 'card dash' },
+    h('div', { class: 'dash-speed' }, h('div', { class: 'speedo-num' }, h('span', { id: 'speedoNum' }, '0.0'), h('small', {}, ' km/h')), h('div', { class: 'sbar' }, h('i', { id: 'speedoArc' }))),
+    h('div', { class: 'dash-side' }, tile('Odometer', 'odoNum', 'km'), tile('Trip', 'tripNum', 'km')),
+    h('div', { class: 'dash-foot' }, h('span', { id: 'speedoLR', class: 'mut' }, ''),
+      h('button', { id: 'liveBtn', class: 'ghost mini', onclick: () => { app.liveSpeedWhileDriving = !app.liveSpeedWhileDriving; updateSpeedo(); } }, '')));
 }

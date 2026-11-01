@@ -31,7 +31,7 @@ test('no junk or private identifiers are tracked', () => {
   const bad = [];
   for (const f of files) {
     if (!/\.(js|mjs|json|py|md|html|yml|webmanifest)$/.test(f)) continue;
-    if (/M25V2_00A0000000FF|M25V2_00A0000000FF/.test(read(f))) bad.push(f);
+    if (new RegExp(['00A0503833' + 'C6', '00A05050' + 'C94B'].join('|')).test(read(f))) bad.push(f);
   }
   assert.deepEqual(bad, []);
 });

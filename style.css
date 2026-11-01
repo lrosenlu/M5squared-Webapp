@@ -1,7 +1,7 @@
 :root{--bg:#0f1720;--card:#18232f;--card2:#1f2d3b;--fg:#e8eef4;--mut:#8fa2b3;--acc:#4cc9a6;--warn:#f2b84b;--bad:#ef5b5b;--line:#2a3a4a;--r:14px}
 @media (prefers-color-scheme: light){:root{--bg:#f2f5f8;--card:#fff;--card2:#eaf0f5;--fg:#13202c;--mut:#5b6e7f;--acc:#0e9f7e;--warn:#b7791f;--bad:#c62f2f;--line:#d3dde6}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+html,body{margin:0;height:100%;height:100dvh;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 body{display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
 header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;gap:8px}
 h1{font-size:20px;margin:0}
@@ -43,13 +43,29 @@ dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--card
 dialog::backdrop{background:#0009}
 a{color:var(--acc)}
 
-.speedo { text-align: center; }
-.speedo-svg { width: 100%; max-width: 180px; }
-.speedo-bg { stroke: var(--line, #8884); }
-.speedo-fg { stroke: var(--accent, #2a7de1); transition: stroke-dasharray .3s; }
-.speedo-num { font-size: 2rem; font-weight: 700; margin-top: -2.2rem; }
-.speedo-num span { font-variant-numeric: tabular-nums; }
-#probeOut { white-space: pre-wrap; word-break: break-all; }
+.speedo-num{font-size:clamp(48px,15vw,68px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.speedo-num small{font-size:.26em;font-weight:600;color:var(--mut)}
+.sbar{height:8px;border-radius:4px;background:var(--card2);margin-top:6px;overflow:hidden}.sbar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+.dash{display:grid;grid-template-columns:1.3fr 1fr;gap:4px 12px;padding:8px 12px;margin-bottom:8px}.dash-speed{align-self:center}
+.dash-side{display:flex;flex-direction:column;justify-content:center;gap:2px}
+.tile .mut{font-size:12px}.tnum{font-size:clamp(20px,6vw,26px);font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.tnum span{font-variant-numeric:tabular-nums}
+.dash-foot{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.mini{padding:4px 10px;min-height:0;font-size:12px;border-radius:99px;border:1px solid var(--line);background:none;color:var(--mut)}
+/* live drive screen: fixed height, no scrolling */
+main.fit{overflow:hidden;display:flex;flex-direction:column;padding-bottom:8px}
+.drivewrap{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.drivewrap>*{flex:none;margin:0}
+.drivewrap .card{margin:0}
+.ctl{padding:6px 12px;display:flex;flex-direction:column;gap:2px}.ctl .seg button{padding:8px 4px}
+.spdlbl{font-size:12px;color:var(--mut)}.ctl input[type=range]{margin:0}
+#padbox{flex:1 1 0;min-height:90px;container-type:size;display:flex;align-items:center;justify-content:center}
+.drivewrap #pad{--s:min(100cqw,calc(100cqh - 18px),340px);width:var(--s);height:var(--s);margin:18px 0 0}
+#padbox{position:relative}.hint{position:absolute;left:0;right:0;top:0;margin:0;font-size:12px;text-align:center;pointer-events:none}
+.holdbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60px;border-radius:var(--r);border:2px solid var(--line);background:var(--card2);color:var(--fg);font-size:14px}
+.holdbtn b{font-size:19px;letter-spacing:.5px}.holdbtn.on{background:var(--acc);border-color:var(--acc);color:#04251c}
+.row.tight{margin:0}.row.tight .btn{min-height:42px;padding:8px}
+.drivewrap #estop{padding:14px;font-size:18px}
 textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--fg);font:13px ui-monospace,monospace;margin:6px 0}
 
 /* collapsible sections */
@@ -63,3 +79,7 @@ details.fold.inline{border-top:1px solid var(--line);margin-top:10px}
 details.fold>*:not(summary){margin-top:8px}
 input[type=range]{width:100%;min-height:36px}
 input[type=number]{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--fg);font-size:16px}
+body.fit h1{display:none}body.fit header{padding:4px 16px;justify-content:flex-end}
+@media (max-height:760px){.holdbtn{min-height:44px}.holdbtn span{display:none}.drivewrap #estop{padding:10px}.drivewrap{gap:6px}.dash{padding:6px 12px;margin-bottom:6px}.speedo-num{font-size:44px}#padbox{min-height:60px}.row.tight .btn{min-height:38px}nav button{padding:10px 4px}}
+input[type=range]{accent-color:var(--acc)}
+@media (max-height:600px){.spdlbl,.dash-foot span{display:none}.dash-foot{min-height:0}.ctl .seg button{padding:5px 4px}}

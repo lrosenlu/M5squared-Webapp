@@ -175,9 +175,11 @@ export class CoreLink {
     const b = await this.right.sendRemoteSpeed(this.lastRaw.right);
     return a && b;
   }
-  async exitRemoteMode() {
+  /** Upstream's disconnect: stop, drive mode 0. `variant` 'standby' (explicit park action only) then also sends SYSTEM_MODE standby. */
+  async exitRemoteMode(_pauseMs = 40, variant = 'standard') {
     await this.send({ left: 0, right: 0 });
     await this.left._send(this.left.builder.writeDriveMode(0x00)); await this.right._send(this.right.builder.writeDriveMode(0x00));
+    if (variant === 'standby') { await this.left.enterStandby(); await this.right.enterStandby(); }
   }
 }
 

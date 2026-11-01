@@ -249,3 +249,18 @@ test('release variants all clear REMOTE; standby also writes system mode 2', asy
     assert.equal(L.driveMode & 4, 0); assert.equal(R.driveMode & 4, 0);
   }
 });
+
+test('Upstream-core link honours the standby variant (was ignored: park did nothing on core)', async () => {
+  const { CoreLink } = await import('../src/drive.js');
+  const L = new MockWheel('L'), R = new MockWheel('R'); await L.connect(); await R.connect();
+  const sent = [];
+  for (const w of [L, R]) { const o = w.send.bind(w); w.send = async (p) => { sent.push(Buffer.from(p).toString('hex')); return o(p); }; }
+  const opts = { retries: 0, commandDelayMs: 0, replyTimeoutMs: 100 };
+  const sup = new DriveSupervisor(new CoreLink(new WheelSession('left', L, opts), new WheelSession('right', R, opts)), {});
+  await sup.connect(); sent.length = 0;
+  assert.ok(await sup.releaseControl({ variant: 'standby' }));
+  assert.equal(sent.filter((x) => x.endsWith('1002')).length, 2, 'both wheels get SYSTEM_MODE standby');
+  sent.length = 0; await sup.connect();  sent.length = 0;
+  assert.ok(await sup.releaseControl());
+  assert.equal(sent.filter((x) => x.endsWith('1002')).length, 0, 'normal release never sends standby');
+});

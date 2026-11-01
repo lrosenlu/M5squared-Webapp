@@ -121,3 +121,21 @@ test('disconnect mirrors upstream: stop notifications first, then drop the link'
   await t.disconnect();
   assert.deepEqual(calls, ['stop_notify', 'gatt_disconnect']);
 });
+
+test('findKnownDevice matches granted devices by id, then name, and tolerates missing support', async () => {
+  const { findKnownDevice } = await import('../src/ble.js');
+  const devs = [{ id: 'a', name: 'M25V2_X' }, { id: 'b', name: 'M25V2_Y' }];
+  const old = globalThis.navigator;
+  const set = (v) => Object.defineProperty(globalThis, 'navigator', { value: v, configurable: true });
+  try {
+    set({ bluetooth: { getDevices: async () => devs } });
+    assert.equal((await findKnownDevice({ id: 'b', name: 'zzz' })).id, 'b');
+    assert.equal((await findKnownDevice({ id: 'new', name: 'M25V2_X' })).id, 'a');
+    assert.equal(await findKnownDevice({ id: 'q', name: 'q' }), null);
+    assert.equal(await findKnownDevice(null), null);
+    set({ bluetooth: {} });
+    assert.equal(await findKnownDevice({ id: 'a' }), null);
+    set({ bluetooth: { getDevices: async () => { throw new Error('x'); } } });
+    assert.equal(await findKnownDevice({ id: 'a' }), null);
+  } finally { set(old); }
+});

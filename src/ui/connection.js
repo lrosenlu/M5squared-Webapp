@@ -1,6 +1,6 @@
 // Connecting, disconnecting, reconnecting and writing settings to the wheels.
 import { parseKeyInput } from '../crypto.js';
-import { pickWheel, BLEWheelTransport } from '../ble.js';
+import { pickWheel, findKnownDevice, BLEWheelTransport } from '../ble.js';
 import { WheelSession, MockWheel } from '../session.js';
 import { State } from '../drive.js';
 import { app, wheels, SIDES, blank, render, trace, connected, polling, reconnecting } from '../state.js';
@@ -12,13 +12,15 @@ export async function connectReal(side, showAll = false) {
   // Some phones/browsers (Bluefy here) never list the wheels with the name/service filter. Once "Show all devices" has
   // worked, Connect uses the unfiltered list too, so the extra tap is not needed again.
   const usedAll = showAll;
+  const forcePick = showAll; // "Show all devices" always opens the picker
   showAll = showAll || !!store.get('pickAll', false);
   const raw = app.keyDraft[side].trim() || store.get('key.' + side, '');
   let key;
   try { key = parseKeyInput(raw); } catch (e) { w.error = e.message; return render(); }
   w.error = ''; w.busy = 'Choose the wheel in the Bluetooth picker...'; render();
-  let device;
-  try { device = await pickWheel(showAll); } catch (e) { w.busy = ''; w.error = e.name === 'NotFoundError' ? 'No wheel selected.' : e.message; return render(); }
+  let device = forcePick ? null : await findKnownDevice(store.get('dev.' + side));
+  const usedKnown = !!device;
+  try { if (!device) device = await pickWheel(showAll); } catch (e) { w.busy = ''; w.error = e.name === 'NotFoundError' ? 'No wheel selected.' : e.message; return render(); }
   const other = SIDES.find((sd) => sd !== side && wheels[sd].transport?.device?.id && wheels[sd].transport.device.id === device.id);
   if (other) { w.busy = ''; w.error = `That is the same wheel (${device.name || 'unnamed'}) already connected as ${other}. Pick the OTHER wheel in the list.`; return render(); }
   w.busy = 'Connecting...'; render();
@@ -29,14 +31,14 @@ export async function connectReal(side, showAll = false) {
     w.transport = transport;
     w.session = new WheelSession(side, transport, { engine: app.engine });
     if (usedAll) store.set('pickAll', true);
-    if (app.remember) store.set('key.' + side, raw);
+    if (app.remember) { store.set('key.' + side, raw); store.set('dev.' + side, { id: device.id, name: device.name || '' }); }
     w.busy = 'Reading status...'; render();
     w.status = await w.session.readStatus();
     if (!w.status.hasData) w.error = transport.rawBytes > 0
       ? 'The wheel is sending data but it cannot be decrypted: this is the wrong key. Each wheel has its own key (left and right differ), and it is the 22-character code from that wheel\'s QR label.'
       : 'Connected, but the wheel sent nothing back. Check About → Protocol log for details, then disconnect, wait 10 s and try again.';
   } catch (e) {
-    w.error = 'Connection failed: ' + (e.message || e);
+    w.error = 'Connection failed: ' + (e.message || e) + (usedKnown ? ' (tried the saved wheel; use Show all devices to pick another)' : '');
     try { await transport.disconnect(); } catch { /* ignore */ }
     w.transport = null; w.session = null;
   }
@@ -70,8 +72,10 @@ export function swapSides() {
   if (app.sup && app.sup.state !== State.DISCONNECTED) return;
   [wheels.left, wheels.right] = [wheels.right, wheels.left];
   for (const sd of SIDES) if (wheels[sd].session) wheels[sd].session.side = sd;
-  const [kl, kr] = [store.get('key.left'), store.get('key.right')];
-  for (const [sd, k] of [['left', kr], ['right', kl]]) { if (k) store.set('key.' + sd, k); else store.del('key.' + sd); }
+  for (const pre of ['key.', 'dev.']) {
+    const [a, b] = [store.get(pre + 'left'), store.get(pre + 'right')];
+    for (const [sd, k] of [['left', b], ['right', a]]) { if (k) store.set(pre + sd, k); else store.del(pre + sd); }
+  }
   [app.keyDraft.left, app.keyDraft.right] = [app.keyDraft.right, app.keyDraft.left];
   render();
 }

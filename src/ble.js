@@ -42,6 +42,15 @@ export async function pickWheel(showAll = false) {
   });
 }
 
+/** A wheel this browser was already granted (needs navigator.bluetooth.getDevices; Chrome/Android and some others). Matches by id, then by name. */
+export async function findKnownDevice(known) {
+  if (!known || !navigator.bluetooth?.getDevices) return null;
+  try {
+    const list = await navigator.bluetooth.getDevices();
+    return list.find((d) => known.id && d.id === known.id) || list.find((d) => known.name && d.name === known.name) || null;
+  } catch { return null; }
+}
+
 export class BLEWheelTransport {
   constructor(device, key, { trace, listenExtra = false } = {}) {
     this.listenExtra = listenExtra;

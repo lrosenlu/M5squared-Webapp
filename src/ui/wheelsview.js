@@ -20,6 +20,7 @@ function wheelCard(side) {
          h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side) }, 'Connect'),
            h('button', { class: 'btn ghost', disabled: !!w.busy || !bluetoothSupported(), onclick: () => connectReal(side, true) }, 'Show all devices'),
            h('button', { class: 'btn ghost', onclick: () => scanKey(side) }, 'Scan QR')),
+         store.get('dev.' + side)?.name && h('p', { class: 'mut' }, `Saved wheel: ${store.get('dev.' + side).name}. Connect reuses it without the picker if this browser still has permission.`),
          h('p', { class: 'mut' }, store.get('pickAll') ? 'Connect lists every nearby Bluetooth device (this phone needs that to see the wheels).' : 'Wheel not listed? Switch it on, close the official app, unpair it in the phone\'s Bluetooth settings, then try "Show all devices".')],
     w.busy && h('p', { class: 'mut' }, w.busy),
     w.error && h('p', { class: 'bad' }, w.error));
@@ -35,9 +36,9 @@ export function viewWheels() {
         h('button', { class: 'btn ghost', onclick: swapSides }, 'Swap left / right')],
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.remember, onchange: (e) => {
         app.remember = e.target.checked; store.set('remember', app.remember);
-        if (!app.remember) SIDES.forEach((s) => store.del('key.' + s));
+        if (!app.remember) SIDES.forEach((s) => { store.del('key.' + s); store.del('dev.' + s); });
       } }), h('span', {}, 'Remember keys on this device. They are stored unencrypted in this browser; leave off on shared devices.')),
-      SIDES.some((s) => store.get('key.' + s)) && h('button', { class: 'btn ghost', onclick: () => { SIDES.forEach((s) => store.del('key.' + s)); render(); } }, 'Forget saved keys'),
+      SIDES.some((s) => store.get('key.' + s)) && h('button', { class: 'btn ghost', onclick: () => { SIDES.forEach((s) => { store.del('key.' + s); store.del('dev.' + s); }); render(); } }, 'Forget saved keys and wheels'),
       h('p', { class: 'mut' }, 'No wheels handy? Demo mode simulates two wheels so you can try every screen. Nothing is sent over Bluetooth.'),
       h('button', { class: 'btn ghost', onclick: startDemo }, 'Start demo mode'),
     ]),

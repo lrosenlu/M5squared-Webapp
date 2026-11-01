@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BLEWheelTransport, PROFILES } from '../src/ble.js';
 import { encryptPacket, decryptPacket } from '../src/crypto.js';
-import { MockWheel, WheelSession } from '../src/session.js';
+import { WheelSession } from '../src/session.js';
+import { MockWheel } from '../src/mockwheel.js';
 import { concat } from '../src/protocol.js';
 
 const key = Uint8Array.from({ length: 16 }, (_, i) => i * 3 + 1);

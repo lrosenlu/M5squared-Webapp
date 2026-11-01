@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PRESETS, SLOPE_VALUES, SPEED_BIAS_VALUES } from '../src/presets.js';
 import { validateProfileParams, PacketBuilder, SPEED_RAW } from '../src/packets.js';
-import { MockWheel, WheelSession } from '../src/session.js';
+import { WheelSession } from '../src/session.js';
+import { MockWheel } from '../src/mockwheel.js';
 
 const ref = JSON.parse(readFileSync(new URL('./presets.json', import.meta.url)));
 const F = (a) => ({ maxTorque: a.max_torque, maxSpeedRaw: a.max_speed, pFactor: a.p_factor, speedBias: a.speed_bias,

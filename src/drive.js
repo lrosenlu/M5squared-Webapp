@@ -160,11 +160,14 @@ export class CoreLink {
   get isConnected() { return !!(this.left.transport.isConnected && this.right.transport.isConnected); }
   async enterRemoteMode() {
     const L = this.left, R = this.right;
+    L._quiet = R._quiet = false; // a previous release left the sessions quiet
     await L._send(L.builder.writeSystemMode(1)); await R._send(R.builder.writeSystemMode(1));
     await L._send(L.builder.writeDriveMode(0x04)); await R._send(R.builder.writeDriveMode(0x04));
     return true;
   }
   async send(frame) {
+    // Releasing (quiesce): a drive tick already in flight must not send a late non-zero speed; stops always go out.
+    if ((frame.left !== 0 || frame.right !== 0) && (this.left._quiet || this.right._quiet)) return true;
     this.lastRaw = { left: -Math.trunc(frame.left * this.scale), right: Math.trunc(frame.right * this.scale) };
     const a = await this.left.sendRemoteSpeed(this.lastRaw.left);
     const b = await this.right.sendRemoteSpeed(this.lastRaw.right);
@@ -215,6 +218,7 @@ export class DriveSupervisor {
   setLowBattery(active) { this.mapper.setLowBatteryLimit(active); }
 
   async connect() {
+    // Already connected: report success unless a failsafe is latched (it must be reset first).
     if (this.state !== State.DISCONNECTED) return this.state !== State.FAILSAFE;
     this.failsafeReason = null;
     this.state = State.CONNECTING;
@@ -250,13 +254,11 @@ export class DriveSupervisor {
     this._sendStop().then(() => this._sendStop());
   }
 
+  /** Stop and leave remote mode, verified by readback (same path as Turn off remote). */
   async reset() {
     this.stopLoop();
     await this._sendStop();
-    await this.link.exitRemoteMode();
-    this.mapper.reset();
-    this.failsafeReason = null;
-    this.state = State.DISCONNECTED;
+    await this.releaseControl();
   }
 
   /**

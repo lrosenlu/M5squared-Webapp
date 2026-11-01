@@ -1,7 +1,8 @@
 // Connecting, disconnecting, reconnecting and writing settings to the wheels.
 import { parseKeyInput } from '../crypto.js';
 import { pickWheel, findKnownDevice, BLEWheelTransport } from '../ble.js';
-import { WheelSession, MockWheel } from '../session.js';
+import { WheelSession } from '../session.js';
+import { MockWheel } from '../mockwheel.js';
 import { State } from '../drive.js';
 import { app, wheels, SIDES, blank, render, trace, connected, polling, reconnecting } from '../state.js';
 import { store } from './store.js';

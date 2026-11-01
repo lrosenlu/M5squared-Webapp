@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Mapper, defaultMapperConfig, DriveSupervisor, WheelPair, State, DriveMode } from '../src/drive.js';
-import { WheelSession, MockWheel } from '../src/session.js';
+import { WheelSession } from '../src/session.js';
+import { MockWheel } from '../src/mockwheel.js';
 import { PacketBuilder } from '../src/packets.js';
 
 const clock = () => { const c = { t: 100 }; c.now = () => c.t; return c; };
@@ -264,4 +265,47 @@ test('realSpeeds lets the core engine send firmware-sized raw speeds (limit 250 
   await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (250).toString(16).padStart(4, '0')), 'clamped to 250 by default');
   s.realSpeeds = true;
   await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (1666).toString(16).padStart(4, '0')), 'real mm/s when enabled');
+});
+
+test('core link: a drive frame in flight during release is dropped, stops still go out, and re-enabling drives again', async () => {
+  const { CoreLink } = await import('../src/drive.js');
+  const L = new MockWheel('L'), R = new MockWheel('R'); await L.connect(); await R.connect();
+  const o = { retries: 0, commandDelayMs: 0, replyTimeoutMs: 100, engine: 'core' };
+  const sl = new WheelSession('left', L, o), sr = new WheelSession('right', R, o);
+  const link = new CoreLink(sl, sr, 1);
+  const sup = new DriveSupervisor(link, {});
+  await sup.connect();
+  await link.send({ left: 10, right: 10 });
+  assert.deepEqual(R.speeds, [10]);
+  await sup.releaseControl();
+  assert.equal(await link.send({ left: 50, right: 50 }), true, 'late frame reports success but is not sent');
+  assert.equal(R.speeds.includes(50), false);
+  assert.equal(R.speeds.at(-1), 0, 'stop frames still went out');
+  await sup.connect();
+  await link.send({ left: 20, right: 20 });
+  assert.equal(R.speeds.at(-1), 20, 'driving works again after re-enabling');
+});
+
+test('disarm returns ARMED/DRIVING to PAIRED and stops; setHillHold keeps REMOTE and toggles AUTO_HOLD', async () => {
+  const { L, R, sup } = await rig();
+  await sup.connect(); sup.arm();
+  assert.equal(sup.state, State.ARMED);
+  await sup.disarm();
+  assert.equal(sup.state, State.PAIRED);
+  assert.equal(R.speeds.at(-1), 0);
+  const sl = sup.link.left;
+  assert.ok(await sl.setHillHold(true)); assert.equal(L.driveMode & 5, 5, 'REMOTE|AUTO_HOLD');
+  assert.ok(await sl.setHillHold(false)); assert.equal(L.driveMode & 5, 4, 'REMOTE only');
+});
+
+test('startLoop runs ticks on a real timer until stopLoop', async () => {
+  const { R, sup } = await rig();
+  sup.loopInterval = 0.01; sup.now = () => Date.now() / 1000; sup.mapper.now = sup.now;
+  await sup.connect(); sup.arm();
+  sup.startLoop();
+  for (let i = 0; i < 10; i++) { sup.setInput(1, 0, true, 'fast'); await new Promise((r) => setTimeout(r, 15)); }
+  sup.stopLoop();
+  assert.ok(R.speeds.some((v) => v > 0), 'loop drove the wheel');
+  const n = R.speeds.length; await new Promise((r) => setTimeout(r, 60));
+  assert.equal(R.speeds.length, n, 'no more writes after stopLoop');
 });

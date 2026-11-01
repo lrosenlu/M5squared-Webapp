@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { WheelSession, MockWheel } from '../src/session.js';
+import { WheelSession } from '../src/session.js';
+import { MockWheel } from '../src/mockwheel.js';
 import { parseSWVersion, nearestRaw, selectableKmh } from '../src/packets.js';
 
 const mk = async (o = {}) => {
@@ -66,7 +67,8 @@ test('writeMaxSpeed reads back, and reports a write that did not take effect', a
 });
 
 test('enterStandby writes SYSTEM_MODE 0x02', async () => {
-  const { MockWheel, WheelSession } = await import('../src/session.js');
+  const { WheelSession } = await import('../src/session.js');
+  const { MockWheel } = await import('../src/mockwheel.js');
   const sent = [];
   const t = { isConnected: true, name: 'x', async send(p) { sent.push(p); return true; }, async request() { return null; } };
   const s = new WheelSession('left', t, {});

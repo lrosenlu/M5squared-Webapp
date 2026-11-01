@@ -131,9 +131,9 @@ test('enterRemoteMode failure on one wheel aborts all-or-nothing', async () => {
 
 test('session clamps remote speed to hard limit', async () => {
   const L = new MockWheel('L'); await L.connect();
-  const s = new WheelSession('left', L, { commandDelayMs: 0 });
+  const s = new WheelSession('left', L, { commandDelayMs: 0, engine: 'core' });
   await s.sendRemoteSpeed(9999); await s.sendRemoteSpeed(-9999);
-  assert.deepEqual(L.speeds, [250, -250]); // classic engine
+  assert.deepEqual(L.speeds, [250, -250]); // core engine
   const L2 = new MockWheel('L2'); await L2.connect();
   const s2 = new WheelSession('left', L2, { commandDelayMs: 0, engine: 'firmware' });
   await s2.sendRemoteSpeed(9999); await s2.sendRemoteSpeed(-9999);
@@ -190,16 +190,6 @@ test('drive() coalesces to the newest command while a write is slow', async () =
   await Promise.all([a, b, c]);
   assert.equal(L.speeds.at(-1), 300);
   assert.ok(!L.speeds.includes(200));
-});
-
-test('classic WheelPair scale maps Slow/Normal/Fast (30/60/100 %) to upstream demo speeds 75/150/250', async () => {
-  const L = new MockWheel('L'); const R = new MockWheel('R'); await L.connect(); await R.connect();
-  const o = { commandDelayMs: 0 };
-  const pair = new WheelPair(new WheelSession('left', L, o), new WheelSession('right', R, o), 'dual', 2.5);
-  for (const p of [30, 60, 100]) await pair.send({ left: p, right: p });
-  assert.deepEqual(R.speeds, [75, 150, 250]);
-  assert.deepEqual(L.speeds, [-75, -150, -250]);
-  assert.deepEqual(pair.lastRaw, { left: -250, right: 250 });
 });
 
 test('speedScale (UI slider) scales the throttle linearly: magnitude x mode ceiling x slider', () => {
@@ -265,12 +255,12 @@ test('Upstream-core link honours the standby variant (was ignored: park did noth
   assert.equal(sent.filter((x) => x.endsWith('1002')).length, 0, 'normal release never sends standby');
 });
 
-test('realSpeeds lets Classic send firmware-sized raw speeds (limit 250 otherwise)', async () => {
+test('realSpeeds lets the core engine send firmware-sized raw speeds (limit 250 otherwise)', async () => {
   const { SPEED_SCALE } = await import('../src/packets.js');
   const L = new MockWheel('L'), R = new MockWheel('R'); await L.connect(); await R.connect();
   const sent = [];
   const o = L.send.bind(L); L.send = async (p) => { sent.push(Buffer.from(p).toString('hex')); return o(p); };
-  const s = new WheelSession('left', L, { retries: 0, commandDelayMs: 0, replyTimeoutMs: 100, engine: 'classic' });
+  const s = new WheelSession('left', L, { retries: 0, commandDelayMs: 0, replyTimeoutMs: 100, engine: 'core' });
   await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (250).toString(16).padStart(4, '0')), 'clamped to 250 by default');
   s.realSpeeds = true;
   await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (1666).toString(16).padStart(4, '0')), 'real mm/s when enabled');

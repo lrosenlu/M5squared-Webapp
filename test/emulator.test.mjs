@@ -16,7 +16,7 @@ async function runOp(s, op) {
     case 'status': return s.readStatus();
     case 'assist': return s.writeAssistLevel(op.level);
     case 'autohold': return s.writeAutoHold(op.on);
-    case 'remote_on': return s.enterRemoteMode();
+    case 'remote_on': return s.armLowLevel(); // upstream ECSRemote.write_remote_mode; the readback/force layer is tested separately
     case 'remote_off': return s.exitRemoteMode();
     case 'speed': return s.sendRemoteSpeed(op.v);
     case 'max_speed': return s.writeMaxSpeed(op.level, op.kmh, false);

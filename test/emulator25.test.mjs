@@ -30,7 +30,7 @@ test('emulator accepts every frame the app builds and mirrors the written state 
   w.disconnect();
 });
 
-for (const engine of ['classic', 'firmware']) {
+for (const engine of ['firmware']) {
   test(`${engine}: arming puts the emulator in REMOTE, drive writes signed speed, exit restores normal`, { skip }, async () => {
     const r = await rig(engine);
     assert.ok(await r.sl.enterRemoteMode()); assert.equal((await r.L.state()).driveMode & 4, 4);
@@ -41,9 +41,9 @@ for (const engine of ['classic', 'firmware']) {
   });
 }
 
-for (const [name, mk, scale] of [['classic', (l, rr) => new WheelPair(l, rr, 'dual', 2.5), 2.5], ['core', (l, rr) => new CoreLink(l, rr, 2.5), 2.5], ['firmware', (l, rr) => new WheelPair(l, rr, 'dual', 1), 1]]) {
+for (const [name, mk, scale] of [['core', (l, rr) => new CoreLink(l, rr, 2.5), 2.5], ['firmware', (l, rr) => new WheelPair(l, rr, 'dual'), 1]]) {
   test(`${name} engine: supervisor drives both emulated wheels, left mirrored, stops, and releaseControl frees the bus`, { skip }, async () => {
-    const r = await rig(name === 'core' ? 'classic' : name);
+    const r = await rig(name);
     const cfg = { ...defaultMapperConfig(), rampRate: 0 };
     const sup = new DriveSupervisor(mk(r.sl, r.sr), { mapper: new Mapper(cfg, r.now), now: r.now });
     assert.ok(await sup.connect());
@@ -63,9 +63,9 @@ for (const [name, mk, scale] of [['classic', (l, rr) => new WheelPair(l, rr, 'du
 }
 
 test('command watchdog: emulator zeroes speed after 1200 ms without a speed frame; the app refreshes faster than that', { skip }, async () => {
-  const r = await rig('classic');
+  const r = await rig('firmware');
   const cfg = { ...defaultMapperConfig(), rampRate: 0 };
-  const sup = new DriveSupervisor(new WheelPair(r.sl, r.sr, 'dual', 2.5), { mapper: new Mapper(cfg, r.now), now: r.now });
+  const sup = new DriveSupervisor(new WheelPair(r.sl, r.sr, 'dual'), { mapper: new Mapper(cfg, r.now), now: r.now });
   await sup.connect(); sup.arm();
   for (let i = 0; i < 20; i++) { // 2 s of 100 ms ticks
     r.clock.t += 0.1; await r.L.setClock(r.clock.t * 1000); await r.R.setClock(r.clock.t * 1000);
@@ -79,7 +79,7 @@ test('command watchdog: emulator zeroes speed after 1200 ms without a speed fram
 });
 
 test('as shipped the emulator ACKs with a fixed telegram id, which a strict client (the app, upstream ECSRemote) rejects', { skip }, async () => {
-  const r = await rig('classic', { echoTid: false });
+  const r = await rig('firmware', { echoTid: false });
   assert.equal(await r.sl._write(r.sl.builder.writeDriveMode(4)), false, 'ACK carries telegram id 0x01, not the request id');
   assert.equal((await r.L.state()).driveMode, 4, '...although the emulator did apply the command');
   r.done();

@@ -112,9 +112,8 @@ export class Mapper {
 
 /** Two WheelSessions acting as one chair. The left wheel is mounted mirrored: its command is negated. */
 export class WheelPair {
-  /** `mode`: 'dual' | 'left' | 'right'. In single-wheel modes the other session may be null. */
-  /** `scale` multiplies the percent frame into raw speed units for the classic engine (upstream's own demo speeds are 80/150/250). */
-  constructor(left, right, mode = 'dual', scale = 1) { this.left = left; this.right = right; this.mode = mode; this.scale = scale; this.lastRaw = { left: 0, right: 0 }; }
+  /** `mode`: 'dual' | 'left' | 'right'. In single-wheel modes the other session may be null. Sessions must use the 'firmware' engine. */
+  constructor(left, right, mode = 'dual') { this.left = left; this.right = right; this.mode = mode; }
 
   get active() {
     return [this.mode !== 'right' ? this.left : null, this.mode !== 'left' ? this.right : null].filter(Boolean);
@@ -134,13 +133,8 @@ export class WheelPair {
   async send(frame) {
     const isStop = frame.left === 0 && frame.right === 0;
     const jobs = [];
-    // 'classic' engine: percent goes out as the raw speed value (what worked on real wheels). 'firmware': percent -> mm/s.
-    const go = (w, pct, side) => {
-      if (w.engine === 'firmware') return w.drive(percentToMmps(pct), isStop);
-      const raw = Math.trunc(pct * this.scale); this.lastRaw[side] = raw; return w.sendRemoteSpeed(raw);
-    };
-    if (this.mode !== 'right' && this.left) jobs.push(go(this.left, -frame.left, 'left'));
-    if (this.mode !== 'left' && this.right) jobs.push(go(this.right, frame.right, 'right'));
+    if (this.mode !== 'right' && this.left) jobs.push(this.left.drive(percentToMmps(-frame.left), isStop));
+    if (this.mode !== 'left' && this.right) jobs.push(this.right.drive(percentToMmps(frame.right), isStop));
     const r = await Promise.all(jobs);
     return r.every(Boolean);
   }

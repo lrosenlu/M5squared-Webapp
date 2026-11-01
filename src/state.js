@@ -22,11 +22,11 @@ export const app = {
   driveMode: DriveMode.SLOW,
   releaseMode: ['standard', 'firmware'].includes(store.get('releaseMode')) ? store.get('releaseMode') : 'standard',
   bmsCheck: store.get('bmsCheck', true),
-  realSpeeds: !!store.get('realSpeeds', false), // diagnostic: Classic/Core send real mm/s (as Firmware does) instead of 75/150/250
+  realSpeeds: !!store.get('realSpeeds', false), // diagnostic: Core sends real mm/s (as Firmware does) instead of 75/150/250
   speedPct: Math.min(100, Math.max(10, Number(store.get('speedPct')) || 100)),
   invertSteering: store.get('invertSteering', false),
   useGamepad: false,
-  engine: store.get('engine', 'firmware'),      // 'firmware' = m25-remote port, the only engine confirmed to drive real wheels; 'classic' and 'core' are kept for comparison
+  engine: store.get('engine') === 'core' ? 'core' : 'firmware', // 'firmware' = m25-remote port (confirmed on real wheels); 'core' = upstream's own transport path (reference)
   liveSpeedWhileDriving: false,
   pad: { vx: 0, vy: 0, held: false },
   keyDraft: { left: '', right: '' },

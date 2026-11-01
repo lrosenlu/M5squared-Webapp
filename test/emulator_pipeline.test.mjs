@@ -23,7 +23,7 @@ async function rig(engine, linkKind, scale) {
 
 const speeds = (rec, w) => rec.filter((e) => e.w === w && e.tx_spp.slice(8, 12) === '0130').map((e) => parseInt(e.tx_spp.slice(12, 16), 16) << 16 >> 16);
 
-for (const [engine, linkKind, scale, convert] of [['classic', 'pair', 2.5, (p) => Math.trunc(p * 2.5)], ['core', 'core', 2.5, (p) => Math.trunc(p * 2.5)], ['firmware', 'pair', 1, (p) => percentToMmps(p)]]) {
+for (const [engine, linkKind, scale, convert] of [['core', 'core', 2.5, (p) => Math.trunc(p * 2.5)], ['firmware', 'pair', 1, (p) => percentToMmps(p)]]) {
   test(`emulator pipeline [${engine}]: connect, arm, drive fast, release, e-stop, shutdown`, { skip: !live && 'upstream checkout not available' }, async () => {
     const { bridge, record, link, sup, step } = await rig(engine, linkKind, scale);
     try {
@@ -70,7 +70,7 @@ for (const [engine, linkKind, scale, convert] of [['classic', 'pair', 2.5, (p) =
       assert.equal(st[0].drive_mode & 4, 0, 'remote mode left'); assert.equal(st[1].drive_mode & 4, 0);
       assert.equal(sup.state, State.DISCONNECTED);
       // every packet decrypted fine on the upstream side: the emulator answered or ACKed everything we sent as a request
-      assert.ok(record.filter((e) => e.rx === null && !e.tx_spp.includes('0130')).length === 0 || engine !== 'classic');
+      assert.ok(record.filter((e) => e.rx === null && !e.tx_spp.includes('0130')).length === 0 || engine !== 'core');
     } finally { bridge.close(); }
   });
 }

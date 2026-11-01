@@ -14,14 +14,14 @@ const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.
 
 /** Defence in depth: whatever the caller asks, remote speed (mm/s) is clamped here. 2361 mm/s = 8.5 km/h. */
 export const REMOTE_SPEED_HARD_LIMIT = MAX_SPEED_MMPS;
-export const CLASSIC_SPEED_LIMIT = 250;
+export const CORE_SPEED_LIMIT = 250; // the 'core' (upstream transport) engine sends raw units, never more than upstream's fastest demo speed
 
 // Remote-mode handshake timing, from the firmware that drives real wheels (m25_ble.cpp _connectWheel).
 export const ARM_TIMING = { edgePulseMs: 45, armSettleMs: 80, rearmMs: 90, readbackMs: 180, attempts: 4, keepAliveMs: 80 };
 
 export class WheelSession {
-  constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000, timing = ARM_TIMING, now = () => Date.now(), engine = 'classic' } = {}) {
-    // 'classic': the arming/streaming that is proven on real wheels (raw speed units, <= 250). 'firmware': port of 6static/m25-remote (mm/s), experimental.
+  constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000, timing = ARM_TIMING, now = () => Date.now(), engine = 'firmware' } = {}) {
+    // 'firmware': port of 6static/m25-remote (mm/s, confirmed on real wheels). 'core': upstream's own transport path (raw units, <= 250), driven by CoreLink.
     this.engine = engine;
     this._txChain = Promise.resolve();
     this.timing = { ...ARM_TIMING, ...timing };
@@ -183,6 +183,15 @@ export class WheelSession {
     return after === null || after.maxSpeedRaw === raw;
   }
 
+  /** Reference-parity helper only (not used to drive): upstream ECSRemote.write_remote_mode(True) after init_connection. Tested bit for bit against upstream. */
+  async armLowLevel() {
+    await this.initConnection(); await sleep(this.commandDelayMs);
+    for (const mask of [DRIVE_BIT.REMOTE | DRIVE_BIT.CRUISE, DRIVE_BIT.REMOTE]) {
+      if (await this._write(this.builder.writeDriveMode(mask))) { this.driveBits = mask; return true; }
+    }
+    return false;
+  }
+
   /**
    * Remote-mode handshake exactly as the firmware does it on real wheels (up to 4 attempts):
    * SYSTEM_MODE=connect, edge pulse 0x00 -> 0x04, then 0x06 (remote+cruise) followed by 0x04 (remote only),
@@ -190,13 +199,6 @@ export class WheelSession {
    */
   async enterRemoteMode() {
     this._quiet = false;
-    if (this.engine !== 'firmware') {
-      await this.initConnection(); await sleep(this.commandDelayMs);
-      for (const mask of [DRIVE_BIT.REMOTE | DRIVE_BIT.CRUISE, DRIVE_BIT.REMOTE]) {
-        if (await this._write(this.builder.writeDriveMode(mask))) { this.driveBits = mask; return true; }
-      }
-      return false;
-    }
     const T = this.timing;
     const bits = (m) => this.builder.writeDriveMode(m);
     for (let attempt = 1; attempt <= T.attempts; attempt++) {
@@ -316,7 +318,7 @@ export class WheelSession {
 
   /** Fire-and-forget speed write, no mode handling (used for the safety stop bursts on exit). */
   async sendRemoteSpeed(speed) {
-    const lim = this.engine === 'firmware' || this.realSpeeds ? REMOTE_SPEED_HARD_LIMIT : CLASSIC_SPEED_LIMIT;
+    const lim = this.engine === 'firmware' || this.realSpeeds ? REMOTE_SPEED_HARD_LIMIT : CORE_SPEED_LIMIT;
     const s = Math.max(-lim, Math.min(lim, Math.trunc(speed)));
     return this._send(this.builder.writeRemoteSpeed(s));
   }

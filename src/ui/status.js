@@ -5,12 +5,14 @@ import { app, wheels, SIDES, connected, bothConnected, driving, srcSide, render,
 import { store } from './store.js';
 import { h, confirmDialog, section } from './dom.js';
 import { apply, applyOne, refresh } from './connection.js';
-import { speedOf } from './telemetry.js';
+import { speedOf, dashboard, updateSpeedo } from './telemetry.js';
 import { paramsCard } from './params.js';
 
 export function viewStatus() {
   if (!SIDES.some(connected)) return [h('div', { class: 'card mut' }, 'Connect a wheel first.')];
+  setTimeout(updateSpeedo, 0);
   return [
+    dashboard(),
     syncNotice(),
     ...SIDES.filter(connected).map(statusCard),
     section('status-advanced', 'Advanced', [

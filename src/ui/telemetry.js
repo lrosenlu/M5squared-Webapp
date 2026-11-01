@@ -47,7 +47,7 @@ export function updateSpeedo() {
   $('#speedoNum').textContent = Math.abs(avg).toFixed(1);
   $('#speedoArc').style.width = Math.min(1, Math.abs(avg) / max) * 100 + '%';
   $('#odoNum').textContent = odo != null ? odo.toFixed(2) : '--';
-  $('#tripNum').textContent = odo != null ? Math.max(0, odo - app.tripBase).toFixed(2) : '--';
+  $('#tripNum').textContent = odo != null && app.sup ? Math.max(0, odo - app.tripBase).toFixed(2) : '--';
   $('#speedoLR').textContent = SIDES.map((sd) => (sd === 'left' ? 'L ' : 'R ') + (speedOf(sd)?.toFixed(1) ?? '-')).join('   ');
   const live = $('#liveBtn'); if (live) live.textContent = app.liveSpeedWhileDriving ? 'Live speed: on' : 'Live speed: off (tap)';
 }

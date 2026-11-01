@@ -20,7 +20,6 @@ export function viewAbout() {
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.bmsCheck, onchange: (e) => { app.bmsCheck = e.target.checked; store.set('bmsCheck', app.bmsCheck); } }),
         h('span', {}, 'Charging check (experimental battery-management read, once a second). Turn off if the DuoDrive dial misbehaves after remote use.')),
     ]),
-    section('drive-diag', 'Drive diagnostics', h('p', { id: 'diag', class: 'mut' }, 'Shown while remote drive is on.')),
     section('about-tools', 'Packet tools', packetTools()),
     section('about-probe', 'Read probe', readProbe()),
     section('log', 'Protocol log', [

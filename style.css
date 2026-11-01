@@ -31,7 +31,7 @@ button{font:inherit}
 .seg button{flex:1;padding:11px 4px;background:var(--card2);color:var(--fg);border:0;border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}.seg button.on{background:var(--acc);color:#04251c;font-weight:700}
 .seg button:disabled{opacity:.5}
-#pad{position:relative;width:clamp(110px,min(78vw,300px,calc(100dvh - 560px)),300px);aspect-ratio:1;margin:12px auto;border-radius:50%;background:var(--card2);border:2px solid var(--line);touch-action:none;user-select:none;-webkit-user-select:none}
+#pad{position:relative;width:min(78vw,300px);aspect-ratio:1;margin:12px auto;border-radius:50%;background:var(--card2);border:2px solid var(--line);touch-action:none;user-select:none;-webkit-user-select:none}
 #pad.armed{border-color:var(--acc)}#pad.off{opacity:.7}
 #knob{position:absolute;width:34%;aspect-ratio:1;border-radius:50%;background:var(--acc);left:33%;top:33%;opacity:.9;pointer-events:none}
 #estop{width:100%;padding:18px;font-size:20px;font-weight:800;border-radius:var(--r);border:0;background:var(--bad);color:#fff;letter-spacing:.5px}
@@ -68,3 +68,15 @@ details.fold>*:not(summary){margin-top:8px}
 input[type=range]{width:100%;min-height:36px}
 input[type=number]{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--fg);font-size:16px}
 input[type=range]{accent-color:var(--acc)}
+/* live drive screen: fixed height, no scrolling */
+main.fit{overflow:hidden;display:flex;flex-direction:column;padding-bottom:8px}
+.drivewrap{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.drivewrap>*{flex:none;margin:0}
+.ctl{padding:8px 12px;display:flex;flex-direction:column;gap:3px}.ctl .seg button{padding:9px 4px}
+.spdlbl{font-size:12px;color:var(--mut)}.ctl input[type=range]{margin:0;accent-color:var(--acc)}
+#padbox{position:relative;flex:1 1 0;min-height:70px;container-type:size;display:flex;align-items:center;justify-content:center}
+.drivewrap #pad{--s:min(100cqw,calc(100cqh - 18px),320px);width:var(--s);height:var(--s);margin:18px 0 0}
+.hint{position:absolute;left:0;right:0;top:0;margin:0;font-size:12px;text-align:center;pointer-events:none}
+.drivewrap .holdbtn{margin:0;min-height:54px}
+.row.tight{margin:0}.row.tight .btn{min-height:42px;padding:8px 4px;font-size:15px}
+.drivewrap #estop{padding:14px;font-size:18px}

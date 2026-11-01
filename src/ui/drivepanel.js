@@ -30,29 +30,29 @@ export function viewDrive() {
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.liveSpeedWhileDriving, onchange: (e) => { app.liveSpeedWhileDriving = e.target.checked; } }), h('span', {}, 'Poll live speed while driving (the firmware avoids this)')),
     ]));
   } else {
+    // Live screen: fixed height, never scrolls (the pad takes the leftover space; Bluefy's toolbars leave only ~530 px).
     const live = isLive();
-    out.push(h('div', { class: 'card' },
-      h('div', { class: st === State.FAILSAFE ? 'bad' : live ? 'ok' : 'warn' }, 'State: ', st, sup.failsafeReason ? ` (${sup.failsafeReason})` : ''),
-      st === State.PAIRED && h('p', { class: 'mut' }, 'Remote mode is on. Arm to enable the joystick, then hold your finger on the pad to move; release to stop.'),
-      h('div', { class: 'seg' }, [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']].map(([m, t]) => h('button', { class: app.driveMode === m ? 'on' : '', onclick: () => { app.driveMode = m; render(); } }, t))),
-      h('label', { for: 'spd' }, speedLabel()),
-      h('input', { id: 'spd', type: 'range', min: 10, max: 100, step: 5, value: app.speedPct, oninput: (e) => { app.speedPct = +e.target.value; store.set('speedPct', app.speedPct); sup.mapper.config.speedScale = app.speedPct / 100; e.target.previousSibling.textContent = speedLabel(); } }),
-      h('button', { class: 'holdbtn' + (app.hillHold ? ' on' : ''), onclick: toggleHillHold }, h('b', {}, 'ANTI-ROLLBACK ' + (app.hillHold ? 'ON' : 'OFF')), h('span', {}, app.hillHold ? 'Brakes on slopes. Tap to turn off' : 'Tap to turn on')),
+    const hint = st === State.FAILSAFE ? `Failsafe${sup.failsafeReason ? ': ' + sup.failsafeReason : ''}` : st === State.PAIRED ? 'Press Arm, then hold the pad to move' : '';
+    setTimeout(updateDiag, 0);
+    return [h('div', { class: 'drivewrap' },
+      h('div', { class: 'card ctl' },
+        h('div', { class: 'seg' }, [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']].map(([m, t]) => h('button', { class: app.driveMode === m ? 'on' : '', onclick: () => { app.driveMode = m; render(); } }, t))),
+        h('label', { for: 'spd', class: 'spdlbl' }, speedLabel()),
+        h('input', { id: 'spd', type: 'range', min: 10, max: 100, step: 5, value: app.speedPct, oninput: (e) => { app.speedPct = +e.target.value; store.set('speedPct', app.speedPct); sup.mapper.config.speedScale = app.speedPct / 100; e.target.previousSibling.textContent = speedLabel(); } })),
+      h('div', { id: 'padbox' },
+        h('p', { id: 'padHint', class: 'hint ' + (st === State.FAILSAFE ? 'bad' : 'mut') }, hint),
+        h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' }))),
       batteryNotice(),
-      h('div', { class: 'row' },
+      h('button', { class: 'holdbtn' + (app.hillHold ? ' on' : ''), onclick: toggleHillHold }, h('b', {}, 'ANTI-ROLLBACK ' + (app.hillHold ? 'ON' : 'OFF'))),
+      h('div', { class: 'row tight' },
         st === State.PAIRED && h('button', { class: 'btn', onclick: () => { sup.arm(); acquireWakeLock(); render(); } }, 'Arm'),
         live && h('button', { class: 'btn ghost', onclick: async () => { await sup.disarm(); render(); } }, 'Disarm'),
-        h('button', { class: 'btn ghost', onclick: disableDrive }, 'Turn off remote')),
-      h('button', { class: 'btn ghost standby', onclick: parkStandby }, 'Standby (park)')));
-    out.push(h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' })));
-    out.push(h('p', { id: 'padHint', class: 'warn' }, ''));
+        st === State.FAILSAFE && h('button', { class: 'btn', onclick: async () => { await sup.reset(); render(); } }, 'Reset'),
+        h('button', { class: 'btn ghost', onclick: disableDrive }, 'Remote off'),
+        h('button', { class: 'btn ghost', onclick: parkStandby }, 'Standby')),
+      h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'))];
   }
   out.push(h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'));
-  if (st === State.FAILSAFE) out.push(h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => { await sup.reset(); render(); } }, 'Reset')));
-  if (sup && st !== State.DISCONNECTED && st !== State.CONNECTING) {
-    out.push(section('drive-diag', 'Diagnostics', h('p', { id: 'diag', class: 'mut' }, '')));
-  }
-  setTimeout(updateDiag, 0);
   return out;
 }
 

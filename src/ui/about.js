@@ -16,7 +16,7 @@ export function viewAbout() {
       h('label', {}, 'Release method (Turn off remote and Disconnect)'),
       h('div', { class: 'seg' }, [['standard', 'Standard'], ['firmware', 'Firmware exact']].map(([m, t]) =>
         h('button', { class: app.releaseMode === m ? 'on' : '', onclick: () => { app.releaseMode = m; store.set('releaseMode', m); render(); } }, t))),
-      h('p', { class: 'mut' }, 'Standard: connect, then drive mode 0. Firmware exact: stop, wait 50 ms, drive mode 0 (what m25-remote does). If the DuoDrive dial stays dead until a power cycle, try the other one (wheels lifted). Never use system mode 0x02 (standby): on real wheels it left the dial unusable until a power cycle and a 30 s dial hold.'),
+      h('p', { class: 'mut' }, 'Standard: connect, then drive mode 0. Firmware exact: stop, wait 50 ms, drive mode 0 (what m25-remote does). If the DuoDrive dial stays dead until a power cycle, try the other one (wheels lifted). Standby is separate: use the Standby (park) button on the Drive tab when you want it. On real wheels the dial then stays unusable until a power cycle and a 30 s dial hold.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.bmsCheck, onchange: (e) => { app.bmsCheck = e.target.checked; store.set('bmsCheck', app.bmsCheck); } }),
         h('span', {}, 'Charging check (experimental battery-management read, once a second). Turn off if the DuoDrive dial misbehaves after remote use.')),
     ]),

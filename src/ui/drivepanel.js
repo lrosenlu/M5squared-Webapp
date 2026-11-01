@@ -18,6 +18,7 @@ export function viewDrive() {
       batteryNotice(),
       sideMismatch() && h('p', { class: 'bad' }, 'A wheel identifies itself as the opposite side. Fix the Left/Right assignment before driving.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.driveAck, onchange: (e) => { app.driveAck = e.target.checked; render(); } }), h('span', {}, 'The wheels are lifted or the area is clear, and I accept responsibility for using this.')),
+      h('button', { class: 'btn ghost standby', onclick: standbyIdle }, 'Standby (park) without driving'),
       h('button', { class: 'btn', disabled: !app.driveAck || sideMismatch() || batteryLocked() || st === State.CONNECTING, onclick: enableDrive }, st === State.CONNECTING ? 'Enabling...' : 'Enable remote drive')));
     out.push(section('drive-options', 'Drive options', [
       h('label', {}, 'Wheels to drive'), h('div', { class: 'seg' }, wheelModeButtons()),
@@ -41,7 +42,8 @@ export function viewDrive() {
       h('div', { class: 'row' },
         st === State.PAIRED && h('button', { class: 'btn', onclick: () => { sup.arm(); acquireWakeLock(); render(); } }, 'Arm'),
         live && h('button', { class: 'btn ghost', onclick: async () => { await sup.disarm(); render(); } }, 'Disarm'),
-        h('button', { class: 'btn ghost', onclick: disableDrive }, 'Turn off remote'))));
+        h('button', { class: 'btn ghost', onclick: disableDrive }, 'Turn off remote')),
+      h('button', { class: 'btn ghost standby', onclick: parkStandby }, 'Standby (park)')));
     out.push(h('div', { id: 'pad', class: live ? 'armed' : 'off' }, h('div', { id: 'knob' })));
     out.push(h('p', { id: 'padHint', class: 'warn' }, ''));
   }
@@ -115,6 +117,21 @@ async function reportArm() {
     if (dm != null && !(dm & 4)) wheels[sd].error = 'This wheel did not stay in remote mode after arming.';
     app.armInfo = { ...(app.armInfo || {}), [sd]: dm };
   }
+}
+
+const STANDBY_WARN = 'The wheels switch off their drive electronics, as when parking. The DuoDrive dial will NOT work again until you power-cycle the wheels (and possibly hold the dial for 30 s). Nothing will move.';
+
+/** Park: stop, leave remote mode, then standby. A deliberate action, never part of the normal release. */
+async function parkStandby() {
+  if (!(await confirmDialog('Put the wheels in standby?', STANDBY_WARN, 'Standby'))) return;
+  if (app.sup) { const ok = await app.sup.releaseControl({ variant: 'standby' }); trace(`[PARK] standby sent, remote mode ${ok ? 'cleared' : 'STILL SET'}`); app.sup = null; }
+  releaseWakeLock(); render();
+}
+
+async function standbyIdle() {
+  if (!(await confirmDialog('Put the wheels in standby?', STANDBY_WARN, 'Standby'))) return;
+  const res = await Promise.all(driveSides().map((sd) => wheels[sd].session.enterStandby().catch(() => false)));
+  trace(`[PARK] standby ${driveSides().map((sd, i) => `${sd}:${res[i] ? 'ok' : 'FAILED'}`).join(' ')}`); render();
 }
 
 async function disableDrive() {

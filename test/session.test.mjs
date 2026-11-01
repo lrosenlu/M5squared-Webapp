@@ -64,3 +64,13 @@ test('writeMaxSpeed reads back, and reports a write that did not take effect', a
   w._handle = (req) => (req[5] === 0x50 ? w._reply(req, 0xff, [0]) : orig(req));
   assert.equal(await s.writeMaxSpeed(0, 3.0), false);
 });
+
+test('enterStandby writes SYSTEM_MODE 0x02', async () => {
+  const { MockWheel, WheelSession } = await import('../src/session.js');
+  const sent = [];
+  const t = { isConnected: true, name: 'x', async send(p) { sent.push(p); return true; }, async request() { return null; } };
+  const s = new WheelSession('left', t, {});
+  s._send = async (pkt) => { sent.push(pkt); return true; };
+  assert.equal(await s.enterStandby(), true);
+  assert.deepEqual([...sent[0]].slice(-1), [2]);
+});

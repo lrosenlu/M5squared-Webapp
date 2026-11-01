@@ -3,6 +3,7 @@ import { WheelPair, CoreLink, DriveSupervisor, State, defaultMapperConfig, Mappe
 import { app, wheels, SIDES, BATT_WARN, BATT_CRITICAL, BATT_LOW_CAP, render, trace, driving, driveSides, driveReady, minBattery, batteryLocked, sideMismatch } from '../state.js';
 import { store } from './store.js';
 import { $, h, confirmDialog, section } from './dom.js';
+import { disconnect } from './connection.js';
 
 const isLive = () => app.sup?.state === State.ARMED || app.sup?.state === State.DRIVING;
 
@@ -18,7 +19,7 @@ export function viewDrive() {
       batteryNotice(),
       sideMismatch() && h('p', { class: 'bad' }, 'A wheel identifies itself as the opposite side. Fix the Left/Right assignment before driving.'),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.driveAck, onchange: (e) => { app.driveAck = e.target.checked; render(); } }), h('span', {}, 'The wheels are lifted or the area is clear, and I accept responsibility for using this.')),
-      h('button', { class: 'btn ghost standby', onclick: standbyIdle }, 'Standby (park) without driving'),
+      h('div', { class: 'row' }, h('button', { class: 'btn ghost', onclick: () => park(false) }, 'Standby'), h('button', { class: 'btn ghost', onclick: () => park(true) }, 'Standby & disconnect')),
       h('button', { class: 'btn', disabled: !app.driveAck || sideMismatch() || batteryLocked() || st === State.CONNECTING, onclick: enableDrive }, st === State.CONNECTING ? 'Enabling...' : 'Enable remote drive')));
     out.push(section('drive-options', 'Drive options', [
       h('label', {}, 'Wheels to drive'), h('div', { class: 'seg' }, wheelModeButtons()),
@@ -49,7 +50,7 @@ export function viewDrive() {
         live && h('button', { class: 'btn ghost', onclick: async () => { await sup.disarm(); render(); } }, 'Disarm'),
         st === State.FAILSAFE && h('button', { class: 'btn', onclick: async () => { await sup.reset(); render(); } }, 'Reset'),
         h('button', { class: 'btn ghost', onclick: disableDrive }, 'Remote off'),
-        h('button', { class: 'btn ghost', onclick: parkStandby }, 'Standby')),
+        h('button', { class: 'btn ghost', onclick: () => park(true) }, 'Standby & disconnect')),
       h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'))];
   }
   out.push(h('button', { id: 'estop', onclick: () => app.sup?.emergencyStop('Emergency stop pressed') }, 'EMERGENCY STOP'));
@@ -121,17 +122,18 @@ async function reportArm() {
 
 const STANDBY_WARN = 'The wheels switch off their drive electronics, as when parking. The DuoDrive dial will NOT work again until you power-cycle the wheels (and possibly hold the dial for 30 s). Nothing will move.';
 
-/** Park: stop, leave remote mode, then standby. A deliberate action, never part of the normal release. */
-async function parkStandby() {
-  if (!(await confirmDialog('Put the wheels in standby?', STANDBY_WARN, 'Standby'))) return;
+/** Park: stop, leave remote mode, send standby, and optionally drop the Bluetooth links. Deliberate action, never part of the normal release. */
+async function park(thenDisconnect) {
+  const msg = STANDBY_WARN + (thenDisconnect ? ' Both wheels are then disconnected.' : '');
+  if (!(await confirmDialog(thenDisconnect ? 'Standby and disconnect?' : 'Put the wheels in standby?', msg, thenDisconnect ? 'Standby & disconnect' : 'Standby'))) return;
   if (app.sup) { const ok = await app.sup.releaseControl({ variant: 'standby' }); trace(`[PARK] standby sent, remote mode ${ok ? 'cleared' : 'STILL SET'}`); app.sup = null; }
-  releaseWakeLock(); render();
-}
-
-async function standbyIdle() {
-  if (!(await confirmDialog('Put the wheels in standby?', STANDBY_WARN, 'Standby'))) return;
-  const res = await Promise.all(driveSides().map((sd) => wheels[sd].session.enterStandby().catch(() => false)));
-  trace(`[PARK] standby ${driveSides().map((sd, i) => `${sd}:${res[i] ? 'ok' : 'FAILED'}`).join(' ')}`); render();
+  else {
+    const res = await Promise.all(driveSides().map((sd) => wheels[sd].session.enterStandby().catch(() => false)));
+    trace(`[PARK] standby ${driveSides().map((sd, i) => `${sd}:${res[i] ? 'ok' : 'FAILED'}`).join(' ')}`);
+  }
+  releaseWakeLock();
+  if (thenDisconnect) for (const sd of SIDES) if (wheels[sd].transport) await disconnect(sd);
+  render();
 }
 
 async function disableDrive() {

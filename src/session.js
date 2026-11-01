@@ -316,7 +316,7 @@ export class WheelSession {
 
   /** Fire-and-forget speed write, no mode handling (used for the safety stop bursts on exit). */
   async sendRemoteSpeed(speed) {
-    const lim = this.engine === 'firmware' ? REMOTE_SPEED_HARD_LIMIT : CLASSIC_SPEED_LIMIT;
+    const lim = this.engine === 'firmware' || this.realSpeeds ? REMOTE_SPEED_HARD_LIMIT : CLASSIC_SPEED_LIMIT;
     const s = Math.max(-lim, Math.min(lim, Math.trunc(speed)));
     return this._send(this.builder.writeRemoteSpeed(s));
   }

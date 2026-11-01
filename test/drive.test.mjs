@@ -264,3 +264,14 @@ test('Upstream-core link honours the standby variant (was ignored: park did noth
   assert.ok(await sup.releaseControl());
   assert.equal(sent.filter((x) => x.endsWith('1002')).length, 0, 'normal release never sends standby');
 });
+
+test('realSpeeds lets Classic send firmware-sized raw speeds (limit 250 otherwise)', async () => {
+  const { SPEED_SCALE } = await import('../src/packets.js');
+  const L = new MockWheel('L'), R = new MockWheel('R'); await L.connect(); await R.connect();
+  const sent = [];
+  const o = L.send.bind(L); L.send = async (p) => { sent.push(Buffer.from(p).toString('hex')); return o(p); };
+  const s = new WheelSession('left', L, { retries: 0, commandDelayMs: 0, replyTimeoutMs: 100, engine: 'classic' });
+  await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (250).toString(16).padStart(4, '0')), 'clamped to 250 by default');
+  s.realSpeeds = true;
+  await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (1666).toString(16).padStart(4, '0')), 'real mm/s when enabled');
+});

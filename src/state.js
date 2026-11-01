@@ -22,6 +22,7 @@ export const app = {
   driveMode: DriveMode.SLOW,
   releaseMode: ['standard', 'firmware'].includes(store.get('releaseMode')) ? store.get('releaseMode') : 'standard',
   bmsCheck: store.get('bmsCheck', true),
+  realSpeeds: !!store.get('realSpeeds', false), // diagnostic: Classic/Core send real mm/s (as Firmware does) instead of 75/150/250
   speedPct: Math.min(100, Math.max(10, Number(store.get('speedPct')) || 100)),
   invertSteering: store.get('invertSteering', false),
   useGamepad: false,

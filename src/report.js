@@ -2,7 +2,6 @@
 import { PROFILE_NAMES_UPSTREAM } from './report_names.js';
 
 const fix = (n, d) => n.toFixed(d);
-const z = (n, w) => String(n).padStart(w, '0');
 
 /** Convert this app's parsed values (src/packets.js) to the dict shape upstream's ResponseParser returns. */
 export function toUpstreamStatus(s) {

@@ -23,6 +23,8 @@ export class WheelSession {
   constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000, timing = ARM_TIMING, now = () => Date.now(), engine = 'firmware' } = {}) {
     // 'firmware': port of 6static/m25-remote (mm/s, confirmed on real wheels). 'core': upstream's own transport path (raw units, <= 250), driven by CoreLink.
     this.engine = engine;
+    this.realSpeeds = false;     // core engine only: send real mm/s instead of raw upstream units (diagnostic)
+    this.driveWrites = 0; this.skippedDrives = 0; this._lastDriveOk = null; this.lastError = null; this.bmsSupported = null;
     this._txChain = Promise.resolve();
     this.timing = { ...ARM_TIMING, ...timing };
     this.now = now;
@@ -43,7 +45,7 @@ export class WheelSession {
   readDriveModeByte() { return this._read(() => this.builder.readDriveMode(), PARAM.STATUS_DRIVE_MODE, (p) => (p.length ? p[0] : null)).catch(() => null); }
 
   /** Counters for the drive diagnostics line. */
-  driveStats() { return { writes: this.driveWrites || 0, coalesced: this.skippedDrives || 0, lastOk: this._lastDriveOk !== false }; }
+  driveStats() { return { writes: this.driveWrites, coalesced: this.skippedDrives, lastOk: this._lastDriveOk !== false }; }
 
   async initConnection() {
     const h = parseHeader(await this._transact(this.builder.writeSystemMode(SYSTEM_MODE_CONNECT)));
@@ -276,12 +278,12 @@ export class WheelSession {
   async drive(mmps, isStop = false) {
     if (this._quiet) return true; // releasing: nothing may re-assert REMOTE after the exit write
     // Like the firmware's motor queue (depth 1, newest wins): never queue behind a slow write, just remember the latest.
-    if (this._driveBusy) { this._pendingDrive = [mmps, isStop]; this.skippedDrives = (this.skippedDrives || 0) + 1; return this._lastDriveOk !== false; }
+    if (this._driveBusy) { this._pendingDrive = [mmps, isStop]; this.skippedDrives++; return this._lastDriveOk !== false; }
     this._driveBusy = true;
     try {
       let args = [mmps, isStop], ok = true;
       do { this._pendingDrive = null; ok = await this._driveNow(...args); args = this._pendingDrive; } while (args);
-      this._lastDriveOk = ok; this.driveWrites = (this.driveWrites || 0) + 1;
+      this._lastDriveOk = ok; this.driveWrites++;
       return ok;
     } finally { this._driveBusy = false; }
   }

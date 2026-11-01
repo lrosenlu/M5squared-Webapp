@@ -49,13 +49,14 @@ Everything uses relative paths, so the `/<repo>/` subpath works. After changing 
 Each wheel needs its own 16-byte AES key: paste the 22-character QR text printed on the wheel, or 32 hex
 digits. Keys are stored in this browser's `localStorage` on your device only; they are never shown again
 after saving and never logged. Anyone with access to your unlocked browser profile could read them —
-use "Forget key" on shared devices.
+use "Forget saved keys and wheels" on shared devices. The wheel you picked is remembered the same way (device id and name,
+never uploaded) so Connect can skip the Bluetooth picker where the browser allows it.
 
 ## Safety behaviour (same deviations as the iOS port)
 
 - Remote drive is **off by default**, needs an explicit arm step and a held dead-man control.
-- Speed commands are capped (slow 30 / normal 60 / fast 100, hard limit 250), shaped by a dead-zone and
-  curve, and ramped from zero at 50 units/s.
+- Speed commands are capped (slow 30 / normal 60 / fast 100 % of 10 km/h, hard limit 8.5 km/h), scaled by the speed-limit slider, shaped by a dead-zone and
+  curve, and ramped from zero at 50 %/s.
 - No input for 0.5 s, or no link for 2 s → zero speed and fail-safe.
 - Steering sign is fixed (the upstream quirk is not reproduced).
 - Max speed above 6.0 km/h is blocked unless you tick an explicit override; destructive services
@@ -64,7 +65,7 @@ use "Forget key" on shared devices.
 
 ## Verified against upstream (6static/m5squared)
 
-`npm test` (100 tests) replays results produced by the **upstream Python** itself:
+`npm test` (152 tests) replays results produced by the **upstream Python** itself:
 
 | Area | How it is checked |
 |---|---|
@@ -98,6 +99,20 @@ UART) · `drive.js` mapper & supervisor · `app.js` UI · `sw.js` offline cache.
 AGPL-3.0-or-later, as upstream. See `LICENSE` and `NOTICE.md`.
 
 
+## Drive engines
+
+- **Firmware** (default): port of 6static/m25-remote. The only engine confirmed to move a chair on real wheels.
+- **Upstream core**: exactly what upstream's own remote sends (both wheels only, raw speed units, remote-only mode). Kept as the
+  reference path. The wheels accept it but its speeds are far below what moves a chair; a diagnostic box sends real mm/s instead.
+
+The older "Classic" engine was removed: its arming wrote REMOTE|CRUISE (0x06) only, which real wheels acknowledge but do not latch.
+
+## Parking
+
+On the Drive tab, **Standby** and **Standby & disconnect** release remote mode and then put the wheels in standby (system mode 0x02),
+optionally dropping both Bluetooth links. On real wheels the DuoDrive dial needs a power cycle afterwards, so this is a deliberate
+action and is never part of the normal release (Turn off remote / Disconnect hand the dial back immediately).
+
 ## Firmware parity (6static/m25-remote)
 
 The drive path follows the hardware-proven m25-remote firmware: speeds in mm/s (100 % = 10 km/h, capped at 2361 mm/s),
@@ -105,7 +120,7 @@ a 4-attempt arming handshake verified by reading back the REMOTE bit, a drive-mo
 writes speed 0 then leaves cruise, the firmware's mapper semantics (checked against its natively compiled mapper), a 60 s
 armed-idle disarm, a low-battery speed cap below 20 % and a drive lockout below 15 %.
 
-Also included: live telemetry (speed, push-rim sensor, push count, wheel error, distance, charging state), a speedometer,
+Also included: live telemetry (speed, push-rim sensor, push count, wheel error, distance, charging state), a speed and odometer dashboard on the Status tab,
 "keep both wheels in sync" for settings, single-wheel drive mode, hill hold, auto-reconnect and a read-only packet probe.
 
 Not available: battery **voltage**. The documented wheel protocol has no voltage read; use the probe on your own wheels to
@@ -126,10 +141,10 @@ Each row compares this app's output with the real Python scripts on generated in
 | m25_utils.parse_hex | accepted inputs and Python's exact error text | tools |
 | upstream `ECSRemote` + `MockWheelSimulator` (the real emulator) | every encrypted request and response, plus the emulator's final state, for status reads, assist level, auto-hold, remote on/speed/off on a left and a right wheel (fixed IVs) | emulator |
 | upstream core `BluetoothTransport` (what the m5squared remote/supervisor sends) | connect, frames, disconnect against the emulator, byte for byte | emulator |
-| whole app pipeline (DriveSupervisor, Mapper, link, session, crypto) vs `MockWheelSimulator`, all three engines | emulated wheels end up in remote mode, ramp to the capped speed with the left wheel mirrored, turn, stop on release and e-stop, and leave remote mode on shutdown | emulator_pipeline |
+| whole app pipeline (DriveSupervisor, Mapper, link, session, crypto) vs `MockWheelSimulator`, both engines (Upstream core and Firmware) | emulated wheels end up in remote mode, ramp to the capped speed with the left wheel mirrored, turn, stop on release and e-stop, and leave remote mode on shutdown | emulator_pipeline |
 | ECSRemote.format_wheel_status | status report text, 1,500 payload sets | report |
 | m25_ecs_driveprofiles | factory presets and limits | presets |
-| 6static/m25-emulator (ESP32 wheel firmware, real C++ compiled natively) | every app frame decodes; drive mode/speed/assist state; supervisor drives and releases both wheels on all three engines; 1200 ms command watchdog | emulator25 |
+| 6static/m25-emulator (ESP32 wheel firmware, real C++ compiled natively) | every app frame decodes; drive mode/speed/assist state; supervisor drives and releases both wheels on both engines (Upstream core and Firmware); 1200 ms command watchdog | emulator25 |
 | m25_parking `--dry-run` | whole stdout (SPP and encrypted frames, fixed IVs), 40 random argument sets | parking |
 
 Known deliberate differences: speed in CRUISE_VALUES is decoded signed (real wheels send reverse as a negative number; upstream documents it as unsigned), and the BMS charging read is experimental because no upstream script uses it.

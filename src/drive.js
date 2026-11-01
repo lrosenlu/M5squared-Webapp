@@ -1,4 +1,3 @@
-import { percentToMmps } from "./packets.js";
 // Port of core/types.py, core/mapper.py and core/supervisor.py. SAFETY-CRITICAL.
 //
 // Deliberate differences from the Python original (same as the iOS port):
@@ -7,6 +6,8 @@ import { percentToMmps } from "./packets.js";
 //  2. Ramping always starts from zero after a stop, and the time step is capped.
 //  3. No "heartbeat" replay of a stale command; the loop sends a fresh command every tick.
 //  4. The input watchdog only applies while the deadman is held.
+
+import { percentToMmps } from './packets.js';
 
 export const DriveMode = { STOP: 'stop', SLOW: 'slow', NORMAL: 'normal', FAST: 'fast' };
 export const State = {

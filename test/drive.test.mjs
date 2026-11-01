@@ -309,3 +309,18 @@ test('startLoop runs ticks on a real timer until stopLoop', async () => {
   const n = R.speeds.length; await new Promise((r) => setTimeout(r, 60));
   assert.equal(R.speeds.length, n, 'no more writes after stopLoop');
 });
+
+test('snapAxis: near an axis the off-axis part is dropped, magnitude is kept, diagonals are untouched', async () => {
+  const { snapAxis } = await import('../src/drive.js');
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const mag = (v) => Math.hypot(v[0], v[1]);
+  for (const [x, y] of [[1, 0.2], [-1, 0.2], [-0.8, -0.1], [0.2, 1], [0.1, -1], [-0.2, -0.9]]) {
+    const r = snapAxis(x, y); assert.ok(near(mag(r), Math.hypot(x, y)), 'magnitude kept');
+    assert.ok(r[0] === 0 || r[1] === 0, `snapped (${x}, ${y})`);
+    assert.equal(Math.sign(r[0] + r[1]), Math.sign(Math.abs(x) > Math.abs(y) ? x : y), 'same direction');
+  }
+  assert.deepEqual(snapAxis(1, 1), [1, 1]);       // 45 degrees
+  assert.deepEqual(snapAxis(1, 0.4), [1, 0.4]);   // ~22 degrees: outside the 15 degree window
+  assert.deepEqual(snapAxis(0, 0), [0, 0]);
+  assert.deepEqual(snapAxis(1, 0.2, 0), [1, 0.2]); // disabled
+});

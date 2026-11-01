@@ -23,6 +23,7 @@ export const app = {
   releaseMode: ['standard', 'firmware'].includes(store.get('releaseMode')) ? store.get('releaseMode') : 'standard',
   bmsCheck: store.get('bmsCheck', true),
   realSpeeds: !!store.get('realSpeeds', false), // diagnostic: Core sends real mm/s (as Firmware does) instead of 75/150/250
+  snapAxes: store.get('snapAxes', true),   // joystick axis snapping (straight / turn on the spot)
   speedPct: Math.min(100, Math.max(10, Number(store.get('speedPct')) || 100)),
   invertSteering: store.get('invertSteering', false),
   useGamepad: false,

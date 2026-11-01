@@ -1,5 +1,5 @@
 // Drive tab: enabling remote drive, the joystick, safety hooks and diagnostics. The control logic lives in ../drive.js.
-import { WheelPair, CoreLink, DriveSupervisor, State, defaultMapperConfig, Mapper } from '../drive.js';
+import { WheelPair, CoreLink, DriveSupervisor, State, defaultMapperConfig, Mapper, snapAxis } from '../drive.js';
 import { app, wheels, SIDES, BATT_WARN, BATT_CRITICAL, BATT_LOW_CAP, render, trace, driving, driveSides, driveReady, minBattery, batteryLocked, sideMismatch } from '../state.js';
 import { store } from './store.js';
 import { SPEED_SCALE } from '../packets.js';
@@ -29,6 +29,7 @@ export function viewDrive() {
       h('p', { class: 'mut' }, ENGINE_HELP[app.engine]),
       app.engine === 'core' && h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.realSpeeds, onchange: (e) => { app.realSpeeds = e.target.checked; store.set('realSpeeds', app.realSpeeds); render(); } }), h('span', {}, 'Test: send real mm/s speeds like Firmware (up to 8.5 km/h at 100 %). Lower the speed limit first and keep the wheels lifted.')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.useGamepad, onchange: (e) => { app.useGamepad = e.target.checked; } }), h('span', {}, 'Game controller: left stick steers, hold any bumper or trigger to move (release = stop). Press a button once so the browser sees it.')),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.snapAxes, onchange: (e) => { app.snapAxes = e.target.checked; store.set('snapAxes', app.snapAxes); } }), h('span', {}, 'Snap the joystick to straight ahead/back and turning on the spot (within 15 degrees of an axis)')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.invertSteering, onchange: (e) => { app.invertSteering = e.target.checked; store.set('invertSteering', app.invertSteering); } }), h('span', {}, 'Invert steering (if testing on blocks shows left/right reversed)')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.liveSpeedWhileDriving, onchange: (e) => { app.liveSpeedWhileDriving = e.target.checked; } }), h('span', {}, 'Poll live speed while driving (the firmware avoids this)')),
     ]));
@@ -169,6 +170,7 @@ export function attachPad() {
     const r = pad.getBoundingClientRect(), R = r.width / 2;
     let dx = (e.clientX - (r.left + R)) / R, dy = (e.clientY - (r.top + R)) / R;
     const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+    if (app.snapAxes) [dx, dy] = snapAxis(dx, dy); // the knob shows the snapped position
     app.pad.vx = -dy; app.pad.vy = dx;
     knob.style.left = (33 + dx * 33) + '%'; knob.style.top = (33 + dy * 33) + '%';
     hint(isLive() ? '' : `Not armed (${app.sup?.state ?? 'off'}): the wheels will not move. Press Arm first.`);
@@ -197,7 +199,9 @@ export function startDriveLoops() {
       const gp = [...(navigator.getGamepads?.() ?? [])].find((g) => g && g.connected);
       const dead = !!gp && [4, 5, 6, 7].some((i) => gp.buttons[i]?.pressed);
       const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v);
-      app.sup.setInput(gp ? -dz(gp.axes[1] ?? 0) : 0, gp ? dz(gp.axes[0] ?? 0) : 0, dead, app.driveMode);
+      let [sx, sy] = gp ? [dz(gp.axes[0] ?? 0), dz(gp.axes[1] ?? 0)] : [0, 0];
+      if (app.snapAxes) [sx, sy] = snapAxis(sx, sy);
+      app.sup.setInput(-sy, sx, dead, app.driveMode);
       return;
     }
     if (app.pad.held) app.sup.setInput(app.pad.vx, app.pad.vy, true, app.driveMode);

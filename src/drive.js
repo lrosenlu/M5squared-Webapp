@@ -17,6 +17,20 @@ export const State = {
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+/**
+ * Axis snapping for the joystick: when the stick points within `deg` degrees of straight ahead/back or pure left/right,
+ * the off-axis part is dropped (magnitude kept) so driving straight, or turning on the spot, needs no steady hand.
+ * (x, y) is the stick position, any scale; returns the snapped pair.
+ */
+export function snapAxis(x, y, deg = 15) {
+  const m = Math.hypot(x, y);
+  if (m === 0 || !(deg > 0)) return [x, y];
+  const a = Math.abs(Math.atan2(y, x)) * 180 / Math.PI; // 0..180, 0 = +x
+  if (a <= deg || a >= 180 - deg) return [Math.sign(x) * m, 0];
+  if (Math.abs(a - 90) <= deg) return [0, Math.sign(y) * m];
+  return [x, y];
+}
+
 export const stopFrame = () => ({ left: 0, right: 0 });
 export const isStop = (f) => f.left === 0 && f.right === 0;
 

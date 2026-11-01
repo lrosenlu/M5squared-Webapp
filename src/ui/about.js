@@ -24,7 +24,9 @@ export function viewAbout() {
     section('about-probe', 'Read probe', readProbe()),
     section('log', 'Protocol log', [
       h('p', { class: 'mut' }, 'Decrypted packets and app events (contains no keys).'),
-      h('pre', { id: 'log' }, app.log.join('\n')),
+      h('div', { class: 'row' }, h('button', { class: 'btn ghost', onclick: async (e) => { try { await navigator.clipboard.writeText(app.log.join('\n')); e.target.textContent = 'Copied'; } catch { e.target.textContent = 'Copy failed: select the text'; } } }, 'Copy log'),
+        h('button', { class: 'btn ghost', onclick: () => { app.log.length = 0; render(); } }, 'Clear log')),
+      h('pre', { id: 'log', style: 'max-height:60vh' }, app.log.join('\n')),
     ]),
   ];
 }

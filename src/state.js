@@ -44,7 +44,7 @@ export const trace = (line) => {
   // Keep the log useful: encrypted RAW bytes and the once-a-second status polls (cruise 0xD1, BMS 0x71) would push the
   // arming/driving frames out of a short buffer within seconds.
   if (/^\[RAW /.test(line) || /\] 01 [0-9A-F]{2} 05 01 (01 D1|08 71)$|\] 01 [0-9A-F]{2} 0[23] 05 (01 D2|08 72)\b/.test(line)) return;
-  app.log.push(line); if (app.log.length > 1500) app.log.shift();
+  app.log.push(line); if (app.log.length > 5000) app.log.shift();
   const el = document.querySelector('#log'); if (el) el.textContent = app.log.join('\n');
 };
 

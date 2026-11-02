@@ -102,8 +102,9 @@ AGPL-3.0-or-later, as upstream. See `LICENSE` and `NOTICE.md`.
 ## Drive engines
 
 - **Firmware** (default): port of 6static/m25-remote. The only engine confirmed to move a chair on real wheels.
-- **Upstream core**: exactly what upstream's own remote sends (both wheels only, raw speed units, remote-only mode). Kept as the
-  reference path. The wheels accept it but its speeds are far below what moves a chair; a diagnostic box sends real mm/s instead.
+- **Upstream core**: a faithful port of what upstream's Python core sends (both wheels only, the mapper's percent as the raw speed, 30/60/100
+  at Slow/Normal/Fast, remote-only mode, no refresh). Kept as the reference path. The wheels accept it, but those speeds are far
+  below the roughly 400 to 800 mm/s the wheels need before they move, so it does not drive real wheels. Use Firmware.
 
 The older "Classic" engine was removed: its arming wrote REMOTE|CRUISE (0x06) only, which real wheels acknowledge but do not latch.
 

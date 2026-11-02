@@ -134,7 +134,7 @@ test('session clamps remote speed to hard limit', async () => {
   const L = new MockWheel('L'); await L.connect();
   const s = new WheelSession('left', L, { commandDelayMs: 0, engine: 'core' });
   await s.sendRemoteSpeed(9999); await s.sendRemoteSpeed(-9999);
-  assert.deepEqual(L.speeds, [250, -250]); // core engine
+  assert.deepEqual(L.speeds, [100, -100]); // core engine: upstream percent units
   const L2 = new MockWheel('L2'); await L2.connect();
   const s2 = new WheelSession('left', L2, { commandDelayMs: 0, engine: 'firmware' });
   await s2.sendRemoteSpeed(9999); await s2.sendRemoteSpeed(-9999);
@@ -256,15 +256,13 @@ test('Upstream-core link honours the standby variant (was ignored: park did noth
   assert.equal(sent.filter((x) => x.endsWith('1002')).length, 0, 'normal release never sends standby');
 });
 
-test('realSpeeds lets the core engine send firmware-sized raw speeds (limit 250 otherwise)', async () => {
-  const { SPEED_SCALE } = await import('../src/packets.js');
+test('core engine sends upstream raw units: the mapper percent unscaled, never above 100', async () => {
   const L = new MockWheel('L'), R = new MockWheel('R'); await L.connect(); await R.connect();
   const sent = [];
   const o = L.send.bind(L); L.send = async (p) => { sent.push(Buffer.from(p).toString('hex')); return o(p); };
   const s = new WheelSession('left', L, { retries: 0, commandDelayMs: 0, replyTimeoutMs: 100, engine: 'core' });
-  await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (250).toString(16).padStart(4, '0')), 'clamped to 250 by default');
-  s.realSpeeds = true;
-  await s.sendRemoteSpeed(Math.trunc(60 * SPEED_SCALE)); assert.ok(sent.at(-1).endsWith('30' + (1666).toString(16).padStart(4, '0')), 'real mm/s when enabled');
+  await s.sendRemoteSpeed(60); assert.ok(sent.at(-1).endsWith('30' + (60).toString(16).padStart(4, '0')), '60 goes out as 60');
+  await s.sendRemoteSpeed(1666); assert.ok(sent.at(-1).endsWith('30' + (100).toString(16).padStart(4, '0')), 'clamped to 100');
 });
 
 test('core link: a drive frame in flight during release is dropped, stops still go out, and re-enabling drives again', async () => {

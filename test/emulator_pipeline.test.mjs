@@ -23,7 +23,7 @@ async function rig(engine, linkKind, scale) {
 
 const speeds = (rec, w) => rec.filter((e) => e.w === w && e.tx_spp.slice(8, 12) === '0130').map((e) => parseInt(e.tx_spp.slice(12, 16), 16) << 16 >> 16);
 
-for (const [engine, linkKind, scale, convert] of [['core', 'core', 2.5, (p) => Math.trunc(p * 2.5)], ['firmware', 'pair', 1, (p) => percentToMmps(p)]]) {
+for (const [engine, linkKind, scale, convert] of [['core', 'core', 1, (p) => p], ['firmware', 'pair', 1, (p) => percentToMmps(p)]]) {
   test(`emulator pipeline [${engine}]: connect, arm, drive fast, release, e-stop, shutdown`, { skip: !live && 'upstream checkout not available' }, async () => {
     const { bridge, record, link, sup, step } = await rig(engine, linkKind, scale);
     try {

@@ -2,7 +2,6 @@
 import { WheelPair, CoreLink, DriveSupervisor, State, defaultMapperConfig, Mapper, snapAxis } from '../drive.js';
 import { app, wheels, SIDES, BATT_WARN, BATT_CRITICAL, BATT_LOW_CAP, render, trace, driving, driveSides, driveReady, minBattery, batteryLocked, sideMismatch } from '../state.js';
 import { store } from './store.js';
-import { SPEED_SCALE } from '../packets.js';
 import { $, h, confirmDialog, section } from './dom.js';
 import { disconnect } from './connection.js';
 
@@ -27,7 +26,6 @@ export function viewDrive() {
       h('label', {}, 'Drive engine'),
       h('div', { class: 'seg' }, [['core', 'Upstream core'], ['firmware', 'Firmware']].map(([v, t]) => h('button', { class: app.engine === v ? 'on' : '', onclick: () => setEngine(v) }, t))),
       h('p', { class: 'mut' }, ENGINE_HELP[app.engine]),
-      app.engine === 'core' && h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.realSpeeds, onchange: (e) => { app.realSpeeds = e.target.checked; store.set('realSpeeds', app.realSpeeds); render(); } }), h('span', {}, 'Test: send real mm/s speeds like Firmware (up to 8.5 km/h at 100 %). Lower the speed limit first and keep the wheels lifted.')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.useGamepad, onchange: (e) => { app.useGamepad = e.target.checked; } }), h('span', {}, 'Game controller: left stick steers, hold any bumper or trigger to move (release = stop). Press a button once so the browser sees it.')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.snapAxes, onchange: (e) => { app.snapAxes = e.target.checked; store.set('snapAxes', app.snapAxes); } }), h('span', {}, 'Snap the joystick to straight ahead/back and turning on the spot (within 15 degrees of an axis)')),
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: app.invertSteering, onchange: (e) => { app.invertSteering = e.target.checked; store.set('invertSteering', app.invertSteering); } }), h('span', {}, 'Invert steering (if testing on blocks shows left/right reversed)')),
@@ -96,13 +94,11 @@ async function enableDrive() {
   if (batteryLocked()) return;
   if (!(await confirmDialog('Enable remote drive?', 'Both wheels will switch into remote-control mode and respond to the on-screen joystick. Release the pad or press EMERGENCY STOP to stop.', 'Enable'))) return;
   const mapper = new Mapper({ ...defaultMapperConfig(), invertSteering: app.invertSteering, speedScale: app.speedPct / 100 });
-  // Upstream core sends percent as the raw speed value (its own demo speeds are 80/150/250). Scale 2.5 maps Slow/Normal/Fast
-  // (30/60/100 %) to 75/150/250. 'Real speeds' (diagnostic) uses the Firmware engine's mm/s conversion instead.
+  // Upstream core sends the mapper's percent (30/60/100 at Slow/Normal/Fast) as the raw speed value, unscaled, exactly as its Python does.
   // Core needs both wheels; with one wheel the Firmware engine is used.
   const useCore = app.engine === 'core' && app.wheelMode === 'dual';
-  const scale = app.realSpeeds ? SPEED_SCALE : 2.5;
-  for (const sd of SIDES) if (wheels[sd].session) { wheels[sd].session.engine = useCore ? 'core' : 'firmware'; wheels[sd].session.realSpeeds = app.realSpeeds; }
-  const link = useCore ? new CoreLink(wheels.left.session, wheels.right.session, scale) : new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode);
+  for (const sd of SIDES) if (wheels[sd].session) { wheels[sd].session.engine = useCore ? 'core' : 'firmware'; }
+  const link = useCore ? new CoreLink(wheels.left.session, wheels.right.session) : new WheelPair(wheels.left.session, wheels.right.session, app.wheelMode);
   app.link = link;
   const sup = app.sup = new DriveSupervisor(link, { mapper, loopInterval: useCore ? 0.1 : 0.05 });
   sup.onStateChange = () => { render(); if (sup.state === State.DISCONNECTED || sup.state === State.FAILSAFE) releaseWakeLock(); };

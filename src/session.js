@@ -13,7 +13,7 @@ const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.
 
 /** Defence in depth: whatever the caller asks, remote speed (mm/s) is clamped here. 2361 mm/s = 8.5 km/h. */
 export const REMOTE_SPEED_HARD_LIMIT = MAX_SPEED_MMPS;
-export const CORE_SPEED_LIMIT = 250; // the 'core' (upstream transport) engine sends raw units, never more than upstream's fastest demo speed
+export const CORE_SPEED_LIMIT = 100; // the 'core' (upstream transport) engine sends the mapper's percent as raw units, as upstream does
 
 // Remote-mode handshake timing, from the firmware that drives real wheels (m25_ble.cpp _connectWheel).
 /** Drive-mode candidates when arming: remote+cruise first, then remote only (upstream's order; the trailing 0x04 is what latches on real wheels). */
@@ -24,7 +24,6 @@ export class WheelSession {
   constructor(side, transport, { retries = 2, commandDelayMs = 150, replyTimeoutMs = 1000, timing = ARM_TIMING, now = () => Date.now(), engine = 'firmware' } = {}) {
     // 'firmware': port of 6static/m25-remote (mm/s, confirmed on real wheels). 'core': upstream's own transport path (raw units, <= 250), driven by CoreLink.
     this.engine = engine;
-    this.realSpeeds = false;     // core engine only: send real mm/s instead of raw upstream units (diagnostic)
     this.driveWrites = 0; this.skippedDrives = 0; this._lastDriveOk = null; this.lastError = null; this.bmsSupported = null;
     this._txChain = Promise.resolve();
     this.timing = { ...ARM_TIMING, ...timing };
@@ -321,7 +320,7 @@ export class WheelSession {
 
   /** Fire-and-forget speed write, no mode handling (used for the safety stop bursts on exit). */
   async sendRemoteSpeed(speed) {
-    const lim = this.engine === 'firmware' || this.realSpeeds ? REMOTE_SPEED_HARD_LIMIT : CORE_SPEED_LIMIT;
+    const lim = this.engine === 'firmware' ? REMOTE_SPEED_HARD_LIMIT : CORE_SPEED_LIMIT;
     const s = Math.max(-lim, Math.min(lim, Math.trunc(speed)));
     return this._send(this.builder.writeRemoteSpeed(s));
   }

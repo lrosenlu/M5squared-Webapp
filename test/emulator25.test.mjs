@@ -41,7 +41,7 @@ for (const engine of ['firmware']) {
   });
 }
 
-for (const [name, mk, scale] of [['core', (l, rr) => new CoreLink(l, rr, 2.5), 2.5], ['firmware', (l, rr) => new WheelPair(l, rr, 'dual'), 1]]) {
+for (const [name, mk, scale] of [['core', (l, rr) => new CoreLink(l, rr), 1], ['firmware', (l, rr) => new WheelPair(l, rr, 'dual'), 1]]) {
   test(`${name} engine: supervisor drives both emulated wheels, left mirrored, stops, and releaseControl frees the bus`, { skip }, async () => {
     const r = await rig(name);
     const cfg = { ...defaultMapperConfig(), rampRate: 0 };

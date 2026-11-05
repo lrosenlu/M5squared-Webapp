@@ -22,7 +22,7 @@ export class MockWheel {
     this.connected = false;
     this.speeds = [];
     this.trace = null;
-    this.charging = false; this.speedMmh = 0; this.pushRim = 0; this.pushCount = 42; this.error = 0;
+    this.charging = false; this.speedMmps = 0; this.pushRim = 0; this.pushCount = 42; this.error = 0;
   }
 
   get isConnected() { return this.connected; }
@@ -61,7 +61,7 @@ export class MockWheel {
       case `${SVC.APP}:${PARAM.READ_PROFILE_PARAMS}`:
         res = this._reply(req, PARAM.STATUS_PROFILE_PARAMS, this.params[payload[0] ?? 0] ?? this.params[0]); break;
       case `${SVC.APP}:${PARAM.READ_CRUISE}`:
-        res = this._reply(req, PARAM.CRUISE_VALUES, [this.driveMode, this.pushRim & 255, (this.speedMmh >> 8) & 255, this.speedMmh & 255, this.battery,
+        res = this._reply(req, PARAM.CRUISE_VALUES, [this.driveMode, this.pushRim & 255, (this.speedMmps >> 8) & 255, this.speedMmps & 255, this.battery,
           (d >>> 24) & 255, (d >>> 16) & 255, (d >>> 8) & 255, d & 255, (this.pushCount >> 8) & 255, this.pushCount & 255, this.error, 0]); break;
       case `${SVC.BATT}:${PARAM.READ_BMS_STATE}`: res = this._reply(req, PARAM.STATUS_BMS_STATE, [0, this.charging ? 1 : 0]); break;
       case `${SVC.APP}:${PARAM.READ_DUO}`: res = this._reply(req, PARAM.STATUS_DUO, [/left/i.test(this.name) ? 2 : 1, 3, 2]); break;

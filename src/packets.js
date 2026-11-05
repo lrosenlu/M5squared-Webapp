@@ -140,7 +140,8 @@ export function parseCruiseValues(p) {
     // Upstream documents this as unsigned, but real wheels send a signed int16 (reverse = 0xFFxx), so decode it signed.
     // The sign is the wheel's own: the left wheel's forward is negative (it is mirrored like the remote speed).
     speedRaw: (((p[2] << 8) | p[3]) << 16) >> 16,
-    speedKmh: ((((p[2] << 8) | p[3]) << 16) >> 16) * 0.001,
+    // mm/s like the other speed registers (upstream m25_ecs.py uses 0.0036 km/h per unit); the protocol doc's "0.001 km/h" note is unverified.
+    speedKmh: rawToKmh((((p[2] << 8) | p[3]) << 16) >> 16),
     batteryPercent: p[4],
     distanceKm: (distanceRaw * 0.01) / 1000,
     pushCount: (p[9] << 8) | p[10],

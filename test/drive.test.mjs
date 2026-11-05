@@ -165,10 +165,10 @@ test('arming sets REMOTE and drive() refreshes mode, stop drops cruise', async (
 
 test('telemetry reads speed, push rim, charging from mock', async () => {
   const L = new MockWheel('L'); await L.connect();
-  L.charging = true; L.speedMmh = 3500; L.pushRim = -5; L.battery = 61;
+  L.charging = true; L.speedMmps = 1000; L.pushRim = -5; L.battery = 61;
   const s = new WheelSession('left', L, { commandDelayMs: 0 });
   const t = await s.readTelemetry();
-  assert.equal(Math.round(t.cruise.speedKmh * 1000), 3500);
+  assert.equal(Math.round(t.cruise.speedKmh * 1000), 3600);
   assert.equal(t.cruise.pushRim, -5);
   assert.equal(t.bms.charging, true);
   assert.equal(t.battery, 61);
@@ -178,7 +178,7 @@ test('cruise speed is signed (reverse reads negative, not 65 km/h)', async () =>
   const { parseCruiseValues } = await import('../src/packets.js');
   const p = [0, 0, 0xff, 0x46, 80, 0, 0, 0, 0, 0, 1, 0];
   assert.equal(parseCruiseValues(p).speedRaw, -186);
-  assert.equal(parseCruiseValues(p).speedKmh, -0.186);
+  assert.ok(Math.abs(parseCruiseValues(p).speedKmh - (-0.6696)) < 1e-9);
 });
 
 test('drive() coalesces to the newest command while a write is slow', async () => {
